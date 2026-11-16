@@ -10,6 +10,15 @@ What is here:
 - **The emulator** (`emulator/`), a web page that plays the frames exactly as the board does and plugs into the bridge as if it were the board, so everything can be built and tried before the hardware is on the desk.
 - **The tools** that bake drawings into frames, check each frame against the browser's own drawing (`tools/vec_check.cpp`), update the board over the air, and print the enclosure.
 
+## Gallery
+
+Sage as the board will show it, each animation played through the same bake that writes its frames for the board (`tools/export_frames.py --gif`). On the prism the black around it is glass, so it seems to float.
+
+<table>
+<tr><td align="center"><img src="gallery/sage/fidget_turn.gif" width="200" alt="Turning round on the spot"><br><sub>Turning round on the spot</sub></td><td align="center"><img src="gallery/sage/idle.gif" width="200" alt="Waiting for something to happen"><br><sub>Waiting for something to happen</sub></td><td align="center"><img src="gallery/sage/working.gif" width="200" alt="Reading while Claude works"><br><sub>Reading while Claude works</sub></td><td align="center"><img src="gallery/sage/alert.gif" width="200" alt="Something needs you"><br><sub>Something needs you</sub></td></tr>
+<tr><td align="center"><img src="gallery/sage/night.gif" width="200" alt="Asleep at night"><br><sub>Asleep at night</sub></td><td align="center"><img src="gallery/sage/done_hearts.gif" width="200" alt="A long job done"><br><sub>A long job done</sub></td><td align="center"><img src="gallery/sage/fidget_mark.gif" width="200" alt="The site's prompt on its face"><br><sub>The site's prompt on its face</sub></td><td align="center"><img src="gallery/sage/fidget_look.gif" width="200" alt="A look over its shoulder"><br><sub>A look over its shoulder</sub></td></tr>
+</table>
+
 ## Roadmap
 
 - [x] The engine from Joe Bentham's desk-buddy and Chris Simpkins's fork, with none of their character's art
