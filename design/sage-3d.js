@@ -20,6 +20,7 @@
   const scl = (a, k) => [a[0] * k, a[1] * k, a[2] * k];
   const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
   const norm = (a) => scl(a, 1 / Math.hypot(...a));
+  const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 
   /** A frame: where a part sits and how it is turned; `then` places another inside it. */
   const frame = (pos = [0, 0, 0], rot = I) => ({ pos, rot, at: (p) => add(pos, apply(rot, p)), then: (p, r = I) => frame(add(pos, apply(rot, p)), mul(rot, r)) });
@@ -34,8 +35,12 @@
   function camera({ k = 1.42, ox = 120, oy = 120, target = [0, 76, 0], orbit = 0, tilt = 0, persp = 0.0012 } = {}) {
     const view = mul(rotX(tilt), rotY(-orbit)); // world to camera: x right, y up, z toward the eye
     const cp = Math.cos(tilt), sp = Math.sin(tilt);
+    // (the key light mostly rides with the camera, so Sage is lit well from wherever it is seen, and a quarter of it
+    // stays fixed in the world, so a turn still shows in the shading)
+    const back = (v) => [view[0] * v[0] + view[3] * v[1] + view[6] * v[2], view[1] * v[0] + view[4] * v[1] + view[7] * v[2], view[2] * v[0] + view[5] * v[1] + view[8] * v[2]];
+    const light = norm(add(scl(back(LIGHT), 0.75), scl(LIGHT, 0.25)));
     const cam = {
-      k, orbit, tilt, cp, sp, view,
+      k, orbit, tilt, cp, sp, view, light,
       /** a world point on the screen: [x, y, depth toward the eye, pixels a millimetre there] */
       at(p) { const c = apply(view, [p[0] - target[0], p[1] - target[1], p[2] - target[2]]), s = k / Math.max(0.2, 1 - c[2] * persp); return [ox + c[0] * s, oy - c[1] * s, c[2], s]; },
       /** a direction in the world, in camera space */
@@ -119,46 +124,60 @@
       const fr = b.f.then(b.c || [0, 0, 0]), core = [W / 2 - r, H / 2 - r, D / 2 - r];
       const pts = [];
       for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const sz of [-1, 1]) pts.push(cam.at(fr.at([sx * core[0], sy * core[1], sz * core[2]])));
-      const kMid = cam.at(fr.at([0, 0, 0]))[3];
-      // its outline, then the same outline in steps, smaller and lighter, drawn toward the light as the camera sees it
-      const outline = pts.map((p) => [p[0], p[1]]), hl = hull(outline), lc = cam.dir(LIGHT), lm = Math.hypot(lc[0], lc[1]) || 1;
-      let cx = 0, cy = 0; for (const [x, y] of hl) { cx += x / hl.length; cy += y / hl.length; }
-      let ext = 0; for (const [x, y] of hl) ext = Math.max(ext, Math.hypot(x - cx, y - cy));
-      const ax = cx + (lc[0] / lm) * (ext + r * kMid) * 0.42, ay = cy - (lc[1] / lm) * (ext + r * kMid) * 0.42;
-      roundedHull(g, outline, r * kMid); g.fillStyle = b.tones[0]; g.fill();
-      // (the steps shrink toward a point inside it, so they never leave the outline: no clip needed)
-      g.save();
-      // (four steps on a large part, two on a small one: each step is the whole outline again, and bytes on the board)
-      const n = b.tones.length, steps = b.steps ?? (Math.max(W, H, D) >= 30 ? 4 : 2);
-      for (let i = 1; i <= steps; i++) { const ti = Math.round((i * (n - 1)) / steps), sF = 1 - (i / (steps + 1)) * 0.62; roundedHull(g, outline.map(([x, y]) => [ax + (x - ax) * sF, ay + (y - ay) * sF]), r * kMid * sF); g.fillStyle = b.tones[ti]; g.fill(); }
-      if ((b.spec ?? 0.5) > 0) { g.globalAlpha = (b.spec ?? 0.5) * 0.8; g.fillStyle = "#ffffff"; g.beginPath(); g.ellipse(ax + (cx - ax) * 0.25, ay + (cy - ay) * 0.25, Math.max(1, ext * 0.22), Math.max(1, ext * 0.07), Math.atan2(cy - ay, cx - ax) + Math.PI / 2, 0, Math.PI * 2); g.fill(); g.globalAlpha = 1; }
-      g.restore();
-      // each face that shows: its plane marked only by a little shade when it turns from the light, then what is on it
+      const kMid = cam.at(fr.at([0, 0, 0]))[3], outline = pts.map((p) => [p[0], p[1]]), big = Math.max(W, H, D) >= 30;
+      const tones = b.tones, n = tones.length, lo = tones[0], hi = tones[n - 1];
+      // Lit as a soft cube: each face that shows in one tone, from a key light fixed in the world and a little fill from
+      // the camera (so a face turned from the key still reads); the faces of the box around it never overlap on the
+      // screen (it is convex), and the silhouette, the box rounded, clips them.
       const half = { front: [W, H, D], back: [W, H, D], right: [D, H, W], left: [D, H, W], top: [W, D, H], bottom: [W, D, H] };
+      const shown = [];
       for (const [name, [n0, u, v]] of Object.entries(FACES)) {
         const nw = apply(fr.rot, n0), nc = cam.dir(nw);
-        if (nc[2] <= 0.02) continue;
+        if (nc[2] <= 0) continue;
         const [fw, fh, depth] = half[name], c0 = fr.at(scl(n0, depth / 2)), uw = apply(fr.rot, u), vw = apply(fr.rot, v);
-        const iw = Math.max(0.01, fw / 2 - r), ih = Math.max(0.01, fh / 2 - r);
-        const lit = Math.max(0, dot(nw, LIGHT));
-        if (lit < 0.6) {
-          const q = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([a, bb]) => cam.at(add(c0, add(scl(uw, a * iw), scl(vw, bb * ih)))));
-          g.beginPath(); q.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y))); g.closePath(); g.globalAlpha = (0.6 - lit) * 0.38; g.fillStyle = "#000000"; g.fill(); g.globalAlpha = 1;
+        const key = dot(nw, cam.light), s = Math.max(0, Math.min(1, (0.35 + 0.65 * Math.max(0, key) + 0.14 * nc[2] - 0.3) / 0.62));
+        const corner = (a, c) => cam.at(add(c0, add(scl(uw, (a * fw) / 2), scl(vw, (c * fh) / 2))));
+        shown.push({ name, n0, nw, nc, fw, fh, c0, uw, vw, key, s, tone: mixc(lo, hi, s), q: [corner(-1, -1), corner(1, -1), corner(1, 1), corner(-1, 1)] });
+      }
+      const darkest = shown.reduce((m, f) => Math.min(m, f.s), 1);
+      roundedHull(g, outline, r * kMid); g.fillStyle = mixc(lo, hi, darkest * 0.85); g.fill();
+      g.save(); roundedHull(g, outline, r * kMid); g.clip();
+      for (const f of shown) { g.beginPath(); f.q.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y))); g.closePath(); g.fillStyle = f.tone; g.fill(); }
+      // where two faces meet the box is round: a band in the tone between theirs, as wide as its radius looks there
+      for (let i = 0; i < shown.length; i++) for (let j = i + 1; j < shown.length; j++) {
+        const A = shown[i], B = shown[j], ax = cross(A.n0, B.n0), len = Math.abs(dot(ax, [W, H, D])), ends = [];
+        for (const sg of [-1, 1]) ends.push(cam.at(fr.at(add(add(scl(A.n0, Math.abs(dot(A.n0, [W, H, D])) / 2), scl(B.n0, Math.abs(dot(B.n0, [W, H, D])) / 2)), scl(ax, sg * (len / 2 - r * 0.6))))));
+        const w = r * kMid * 0.95 * Math.min(1, 0.35 + Math.min(A.nc[2], B.nc[2]) * 1.6);
+        g.lineCap = "round"; g.strokeStyle = mixc(lo, hi, (A.s + B.s) / 2); g.lineWidth = w; g.beginPath(); g.moveTo(ends[0][0], ends[0][1]); g.lineTo(ends[1][0], ends[1][1]); g.stroke();
+        // (and on a large part the middle of that band catching a little more light, so the edge reads round)
+        if (big) { g.strokeStyle = mixc(lo, hi, ((A.s + B.s) / 2 + Math.max(A.s, B.s)) / 2); g.lineWidth = w * 0.4; g.stroke(); }
+      }
+      // in each face's own millimetres: a soft light where the key falls on it, then what is on it
+      const best = shown.reduce((m, f) => (f.key * 0.7 + f.nc[2] * 0.3 > (m ? m.key * 0.7 + m.nc[2] * 0.3 : -9) ? f : m), null);
+      for (const f of shown) {
+        const { fw, fh, c0, uw, vw } = f;
+        const o = cam.at(add(c0, add(scl(uw, -fw / 2), scl(vw, -fh / 2)))), px = cam.at(add(c0, add(scl(uw, 1 - fw / 2), scl(vw, -fh / 2)))), py = cam.at(add(c0, add(scl(uw, -fw / 2), scl(vw, 1 - fh / 2))));
+        g.save(); g.transform(px[0] - o[0], px[1] - o[1], py[0] - o[0], py[1] - o[1], o[0], o[1]);
+        const lu = dot(cam.light, uw), lv = dot(cam.light, vw), lm = Math.hypot(lu, lv) || 1;
+        if (big && f.key > 0.15 && f.nc[2] > 0.25) {
+          g.globalAlpha = 0.55; g.fillStyle = mixc(lo, hi, Math.min(1, f.s + 0.1)); g.beginPath();
+          g.ellipse(fw / 2 + (lu / lm) * fw * 0.16, fh / 2 + (lv / lm) * fh * 0.16, fw * 0.36, fh * 0.34, 0, 0, Math.PI * 2); g.fill(); g.globalAlpha = 1;
         }
-        const paint = b.faces && b.faces[name];
-        if (paint) {
-          // the face's own millimetres onto the screen: x along u, y along v, (0, 0) at its top left
-          const o = cam.at(add(c0, add(scl(uw, -fw / 2), scl(vw, -fh / 2)))), px = cam.at(add(c0, add(scl(uw, 1 - fw / 2), scl(vw, -fh / 2)))), py = cam.at(add(c0, add(scl(uw, -fw / 2), scl(vw, 1 - fh / 2))));
-          g.save(); g.transform(px[0] - o[0], px[1] - o[1], py[0] - o[0], py[1] - o[1], o[0], o[1]);
-          paint(g, fw, fh, { lit, facing: nc[2] });
-          g.restore();
+        const paint = b.faces && b.faces[f.name];
+        if (paint && f.nc[2] > 0.02) paint(g, fw, fh, { lit: Math.max(0, f.key), facing: f.nc[2] });
+        if (f === best && (b.spec ?? 0.5) > 0 && f.key > 0.2) {
+          // its specular spot, near the edge the light comes over
+          g.globalAlpha = (b.spec ?? 0.5) * 0.7 * Math.min(1, f.nc[2] * 2); g.fillStyle = "#ffffff"; g.beginPath();
+          g.ellipse(fw / 2 + (lu / lm) * fw * 0.3, fh / 2 + (lv / lm) * fh * 0.3, fw * 0.16, Math.max(0.6, fh * 0.05), Math.atan2(lv, lu) + Math.PI / 2, 0, Math.PI * 2); g.fill(); g.globalAlpha = 1;
         }
+        g.restore();
       }
       // the prism's own light on the far rim
-      if ((b.rimA ?? (Math.max(W, H, D) >= 30 ? 0.3 : 0)) > 0) { g.save(); roundedHull(g, pts.map((p) => [p[0], p[1]]), r * kMid); g.clip(); g.globalAlpha = b.rimA ?? 0.3; g.strokeStyle = "#cfe8d6"; g.lineWidth = Math.max(1, 1.2 * kMid); roundedHull(g, pts.map((p) => [p[0] + 1.2 * kMid, p[1] + 1.2 * kMid]), r * kMid); g.stroke(); g.restore(); }
+      if ((b.rimA ?? (big ? 0.3 : 0)) > 0) { g.globalAlpha = b.rimA ?? 0.3; g.strokeStyle = "#cfe8d6"; g.lineWidth = Math.max(1, 1.2 * kMid); roundedHull(g, outline.map((p) => [p[0] + 1.2 * kMid, p[1] + 1.2 * kMid]), r * kMid); g.stroke(); g.globalAlpha = 1; }
+      g.restore();
     },
     ball(g, cam, b) {
-      const p = cam.at(b.f.at(b.c || [0, 0, 0])), l = cam.dir(LIGHT), m = Math.hypot(l[0], l[1]) || 1;
+      const p = cam.at(b.f.at(b.c || [0, 0, 0])), l = cam.dir(cam.light), m = Math.hypot(l[0], l[1]) || 1;
       const tn = b.tones, few = [tn[0], tn[Math.floor((tn.length - 1) / 2)], tn[tn.length - 1]];
       ball(g, p[0], p[1], b.R * p[3] * (b.scale ?? 1), few, b.spec ?? 0.5, (l[0] / m) * 0.8, (-l[1] / m) * 0.8);
     },

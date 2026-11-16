@@ -133,7 +133,7 @@
     } else if (eyes === "sleep") {
       // asleep: its eyes a slow wave, rising and falling as it breathes
       g.globalAlpha = 0.85; g.beginPath();
-      for (let i = 0; i <= 24; i++) { const px = x + w * (0.18 + 0.64 * i / 24), py = cy + Math.sin(i / 24 * Math.PI * 2 + t / 12) * h * 0.06; i ? g.lineTo(px, py) : g.moveTo(px, py); }
+      for (let i = 0; i <= 24; i++) { const px = x + w * (0.18 + 0.64 * i / 24), py = cy + Math.sin(i / 24 * Math.PI * 2 + Math.floor(t / 4) / 3) * h * 0.06; i ? g.lineTo(px, py) : g.moveTo(px, py); }
       g.stroke(); g.globalAlpha = 1;
     } else if (eyes === "shutter") {
       // do not disturb: closed eyes, and a graphite shutter lowered over the top of its visor
@@ -267,7 +267,10 @@
         top(gg, w, h) { gg.globalAlpha = 0.25; gg.strokeStyle = T.seam; gg.lineWidth = 0.6; rr(gg, w * 0.12, h * 0.15, w * 0.76, h * 0.7, 10); gg.stroke(); },
       } });
     // its own light, from the visor down onto the book
-    if (p.light && p.book) S.custom({ w: hpt(0, 0, 30), bias: 50, draw(gg) {
+    // (seen only from the front: from behind, its body hides where it falls)
+    const facing = cam.dir(Sage3D.apply(head.rot, [0, 0, 1]))[2];
+    // (and left out once it is too faint to see)
+    if (p.light >= 0.3 && p.book && facing > 0.2) S.custom({ w: hpt(0, 0, 30), bias: 50, draw(gg) {
       const a = cam.at(hpt(-26, 4, 30)), b = cam.at(hpt(26, 4, 30)), c = cam.at(root.at([19, 0.5, 34])), d = cam.at(root.at([-19, 0.5, 34]));
       gg.globalAlpha = 0.16 * p.light; gg.fillStyle = T.green; gg.beginPath(); gg.moveTo(a[0], a[1]); gg.lineTo(b[0], b[1]); gg.lineTo(c[0], c[1]); gg.lineTo(d[0], d[1]); gg.closePath(); gg.fill(); } });
 

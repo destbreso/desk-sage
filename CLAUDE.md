@@ -17,7 +17,8 @@ It is public, and it names no other project or repository of the author's: only 
 
 - Sage's personality is already defined on destbreso.com: alive and never looping (long rests with fidgets, cooldowns, no repeats), likes being looked at, curious at what moves, calm or sleepy when left alone, cross for a while when wronged, its patience spent by bothers and coming back when left alone (dizzy, a glitch or do not disturb when it runs out), drooping below a quarter of its battery, dozing at night. On the desk it is respected and given more depth, never changed into someone else.
 - Its face, mood and patience are the website's own code (`design/site/sage-site.js`, generated: never edited by hand). Its body is drawn from the 3D model's own measurements.
-- Its look: illustrated (flat fills shaded in steps, so the board draws it as instructions) for everyday, and made of the rain's glyphs for its special moments (forming, dissolving). No 3D render for now.
+- Its look: illustrated for everyday (each part lit as a soft cube in flat fills, so the board draws it as instructions), and made of the rain's glyphs for its special moments. No 3D render for now.
+- What comes into its world for the author's work is the website's own world, never a stock metaphor: no bug for a failure, rocket for a deploy or boxes for a build, not even drawn in Sage's materials (the author turned down both). Its desk is a board of the Game of Life, and the work shows up as cells computed by Life's own rule.
 - Nothing here says how Sage is found on the website.
 - Before a look is baked or changed at scale, show the author a sheet (the reference, now, the proposal) and wait for the yes.
 - The README's gallery images carry a fingerprint of their content (`?v=` and the first eight characters of the GIF's SHA-1): after drawing the GIFs again, update every fingerprint, or GitHub's image proxy and browsers keep showing the old ones.
