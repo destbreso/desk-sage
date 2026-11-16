@@ -11,10 +11,12 @@ What is left, phase by phase. Once something is done, its record goes to `docs/H
 - **Its worlds are several.** What comes for the author's work is made for Sage (a glitch, the prompt, its modules), its desk is also a board of the Game of Life, it projects holograms as its mind shows on the website, and it is made of the rain for its special moments; no one theme takes over. An act redone keeps the old one as a variant.
 - **Holograms are light, from its lens.** Thrown from a lens on the top edge of its head, with no panel: glowing strokes cut into scan lines, a band running down them, a flicker; on the desk on a shape that suits what they show, in the air, or over the whole screen.
 - **The prism.** Black vanishes in the glass, so Sage's visor disappears and its shell and eyes float; its graphite is lifted from the room's colour so it does not vanish too.
+- **Sage's mind beside the bridge** (the author, 2026-11-16). Sage's mind runs as a small Node process beside the Python bridge (`mind/`): it holds the table of reactions and runs the website's own patience and mood code, the same bundle the art uses (one Sage, never copied). The bridge keeps the link to the board, Claude Code's hooks, the commands it reads, the calendar, Slack, the usage and the sounds, and asks the mind what to do; the mind chooses acts, and the moods stay the bridge's.
+- **Modular by its contracts, and no further.** Asked how to keep the bridge, the render and the mind easy to maintain: the table of reactions is plain data (a new reaction is one entry), the chooser is a small engine, the website's code is loaded as it is, and the protocol adapter stands on its own. The contract between the bridge and the mind is `mind/README.md` (a protocol version in the first message, the signals, the answers), tested from both sides; the contract with the art is the names of the acts it holds. No plugin system, hot loading, separate services or abstract interfaces: this is one person's desk companion.
 
 ## Phase 2: Sage drawn as code
 
-- Glyph moments: fifteen glyph acts are drawn and stored as glyph frames, but nothing plays them at their moments yet: forming out of the rain on waking and after a reboot, dissolving into it when the bridge is gone, and now and then by itself.
+- Glyph moments: the mind plays the rain's acts now and then while Sage idles, for a compaction and for a failure, and `glyph_form` for a hello; nothing plays them yet at the board's own moments: forming out of the rain on waking and after a reboot, dissolving into it when the bridge is gone.
 - Room: the art has outgrown the partition uncompressed. With the restored acts and the holograms it measures about 14.8 MB of instructions and 2.2 MB of glyphs in the page (estimated as the bake counts them), against 12,451,840 bytes, so the committed `sage.bin` is still the bake from before them (10,725,857 bytes, without those acts). Frames compressed on the board are being built; then the art is baked again.
 - The holograms show fixed numbers (02:14, 23%, ten passed and two failed). Real ones (the time, the battery, the test counts) need the board to draw the digits itself over a frame: a small overlay of seven-segment strokes, fed by the bridge, in the hologram's place.
 - Why `vec.h` drew the reading light's faint cone differently from Chrome (13 frames, stored as pixels until the cone was left out below a third of its light) was not looked into: a faint wash over a wide area may still miss elsewhere.
@@ -26,15 +28,22 @@ What is left, phase by phase. Once something is done, its record goes to `docs/H
 
 ## Phase 3: Sage's mind in the bridge
 
-- One table of reactions (signal, how Sage reads it, what it does), with priorities, cooldowns and no repeats, in place of the bridge's fixed hook-to-mood rules and its list of gags.
-- Its battery is the author's Claude usage (the bridge already reads it): below a quarter it droops, near the limit it goes to charge.
-- Its patience from the website's code: a tap is a poke, being bothered while charging makes it cross, and running out gives dizzy, a glitch or do not disturb.
-- Its voice: the room's chirps, at their exact frequencies, rendered to sound files for the Mac to play (the board has no speaker).
-- Where the mind runs: the website's mind is TypeScript, so the reactions run in a small Node process beside the Python bridge, or replace its decision part.
+The mind is built (`mind/`, its contract in `mind/README.md`, its record in `docs/HISTORY.md`). What is left:
+
+- Its voice: the room's chirps, at their exact frequencies, rendered to sound files for the Mac to play (the board has no speaker). Until then the bridge's sounds are Lump's moments (`sounds.json`, class `Sounds`), and the scripts that made his WAVs (`tools/make_sounds.py`, `tools/make_gag_sounds.py`) left with his art, so there are none to play and `tools/install_bridge.sh` stops at them.
+- Acts its reactions still lack: sulking (when it minds being bothered, after its patience runs out), do not disturb (bothered on its charger), a failed tool call (Lump's `oops`: nothing plays for one now), going to charge near the usage limit (the mind knows when it is on its charger, for its patience, but has no act for it), and a nod for a commit. Each is then one entry in `mind/table.mjs`.
+- The board's own tap: the firmware still reacts to a tap by itself with Lump's gag names (`pickTap` in `firmware/src/main.cpp`); with Sage's art it finds none, so only the mind's act plays, but the board's reaction should go through the mind or pick the art's `tap_*` acts (Phase 6). Its `gag <name>` line for a `tap_*` act also reaches the bridge's gag sounds, which look for Lump's `tap_<gag>.wav`.
+- Lump's names still in the bridge: `GAGS`, `ANIMATIONS`, `FIDGETS`, `CLIP_SETS`, `CLIP_HOURS`, `COMMAND_CLIPS` and the limit, meeting and Slack clips. They play only when the mind is not there, except the meeting clips and Slack's paper plane and letter, which are still the bridge's and Lump's. `POST /play` knows Lump's names and clips, not Sage's acts (`/cmd` with `e <act>` plays any).
+- The installed bridge: `tools/install_bridge.sh` copies only `buddy_bridge.py` into `~/.desk-buddy`, so the login item has no `mind/` beside it and carries on without it, until the installer runs it from a checkout or `"mind"` in `config.json` names one.
+- A shake: the mind takes one (being picked up, so running out there is dizzy), but the board feels none yet (Phase 6).
+- Cross on its face: the mind keeps whether Sage is cross (it then answers taps with nothing), but the board's moods are the bridge's, so its face does not show it.
+- The committed art predates 13 of the table's acts (the holograms, the Life acts, `done_hearts`, `glyph_form`); they play once the art is baked again (Phase 2, room). Until then a failing test has two of its five acts, and the rule against repeats makes them alternate more than their weights say (measured 62% and 38% against 3 to 1).
 
 ## Phase 4: the author's workflow as Sage's senses
 
 Everything stays on the machine: what the hooks see is read there and never sent anywhere. Reactions are described by the kind of work; what is particular to one of the author's projects (a mark Sage shows for it) is in the bridge's local config.
+
+Some of these reach the mind already as one act each (a new session, tests, builds, pushes, deploys, a merge conflict, a compaction, a Stop, waiting, late at night: the signals in `mind/README.md`); what is left of those rows is the rest of what Sage does there (watching then proud, a project's mark, suggesting sleep), and the other rows.
 
 | What happens | Where it is read | What Sage does |
 |---|---|---|
@@ -63,7 +72,7 @@ Everything stays on the machine: what the hooks see is read there and never sent
 ## Phase 6: the board
 
 - Lump's names out of the firmware and the bridge (the file's magic, the hostname, the art partition, the `X-Lump-*` headers, the hard-coded mood names), and its gags and fidgets chosen from whatever the art holds (`tap_*`, `fidget_*`) instead of Lump's list. Recolouring (`recolour8`) assumed Lump's magenta body and goes or is rewritten; glyph frames already keep their own colours.
-- A shake felt by the motion sensor (it feels only taps today, and no double tap): Sage gets dizzy, as when it is lifted in the room.
+- A shake felt by the motion sensor (it feels only taps today, and no double tap): Sage gets dizzy, as when it is lifted in the room. The mind already takes it as a `shake` signal; the board and the bridge have to send it.
 - Clips over Wi-Fi made safe: a hash checked on arrival, an eviction that cannot empty the store when a clip fails to parse (the emulator reproduces it), and room checked before memory runs out. The bridge's `/hook` and `/cmd` routes checked for their origin.
 - Found by the emulator, to fix or keep knowingly: `vec.h` ignores a negative `lineDashOffset` and only approximates strokes under a non-uniform scale; `autoBehaviour` asks for "waiting" and "longhaul" without checking the art has them; a pixel frame whose first run is pure white draws that run black; taps in the first 600 ms after boot are ignored.
 - The firmware compiles (PlatformIO in `tools/.venv`, `pio run` in `firmware/`), but by hand, and its platform is not pinned: `espressif32` resolved to 8.0.0 on its first compile. Pinning it, and compiling whenever `main.cpp`, `vec.h` or `glyphs.h` change, keeps it from drifting from the emulator. It builds with six warnings that were there before (misleading indentation in `vec.h` and `main.cpp`, a `volatile` increment, one in the Arduino core).
@@ -71,5 +80,7 @@ Everything stays on the machine: what the hooks see is read there and never sent
 - An enclosure shaped as Sage, the prism its face, from the 3D model's measurements (optional).
 
 ## Open questions for the author
+
+- **Its patience on the desk.** The website has no tap, so how its bothers map to the desk is a choice made here, not the website's: a tap is a poke; a tap while an act is still playing is being gone to (it costs more, and running out there is a glitch); at 3% of its battery or less it is on its charger (running out there is do not disturb); a shake is being picked up (dizzy). Measured with the committed art: tapped every second or second and a half it glitches on the 6th tap; every 2.4 seconds (each hello over) it sulks on the 18th, every 3 seconds on the 29th, and every 4 seconds never, since its patience comes back as fast as a poke uses it; on its charger, do not disturb on the 10th and 13th, and on the 24th every 4 seconds.
 
 - **The face's emphasis.** On a 25 mm cube worried and cross need slants stronger than the website's face draws. An option on the website's face code, used only by the desk, would keep one face and leave the website as it is.
