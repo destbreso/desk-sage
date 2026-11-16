@@ -2,10 +2,13 @@
 // things it does on its own, the corner marks, the backlight, taps, the serial commands and clips.
 // Each method names the function it mirrors in main.cpp; keep them in step. What the hardware does
 // (the clock, the display, the backlight pin, the accelerometer, the serial line) comes in through
-// the hooks the constructor takes, so a page and a test drive the same code.
+// the hooks the constructor takes, so a page and a test drive the same code. Inflating a compressed frame is one of
+// them (`inflate`: inflate-node.mjs under Node, prepared() from packed.mjs in the page); without it such a frame is
+// refused, as one that does not inflate.
 
 import { Canvas, W, H } from './vec.mjs';
 import * as glyphs from './glyphs.mjs';
+import * as packed from './packed.mjs';
 import { Sprite, color565 } from './lgfx.mjs';
 
 export const LOOP = 0, TRANS = 1, EVENT = 2;
@@ -48,7 +51,7 @@ function newAnim() {
 }
 
 export class Board {
-  constructor({ millis, micros, random, say, push, backlight } = {}) {
+  constructor({ millis, micros, random, say, push, backlight, inflate } = {}) {
     const t0 = globalThis.performance ? performance.now() : Date.now();
     this.millis = millis || (() => Math.floor(performance.now() - t0));          // since boot, as millis() is
     this.micros = micros || (() => (performance.now() - t0) * 1000);
@@ -58,6 +61,7 @@ export class Board {
     this.analogWrite = backlight || (() => {});                                  // the backlight pin
     this.cv = new Canvas(); this.fb = this.cv.fb; this.gfx = new Sprite(this.fb);
     this.cv.recolour = c => this.recolour8(c);
+    this.win = new packed.Window(inflate || (() => null));       // the window compressed frames are inflated into
     this.A = newAnim();
     this.problems = [];                                        // what the board would do wrong with this art (shown, not emulated)
     // player
@@ -107,8 +111,8 @@ export class Board {
     const rdStr = () => { const n = buf[p++]; const s = decoder.decode(buf.subarray(p, p + n)); p += n; return s; };
     if (buf[0] !== 0x4C || buf[1] !== 0x55 || buf[2] !== 0x4D || buf[3] !== 0x50) return false;   // "LUMP"
     p += 4;
-    const version = rd16(buf, p); p += 2;            // 3: every frame is pixels. 4: a frame may be instructions. 5: up to 65535 sequences. 6: glyph frames and their atlas
-    if (version < 3 || version > 6) return false;
+    const version = rd16(buf, p); p += 2;            // 3: every frame is pixels. 4: a frame may be instructions. 5: up to 65535 sequences. 6: glyph frames and their atlas. 7: compressed frames
+    if (version < 3 || version > 7) return false;
     const nFrames = rd16(buf, p); p += 2;
     const nMoods = buf[p++], fps = buf[p++], moodOf = [];
     if (nMoods > MAX_MOODS) return false;
@@ -144,9 +148,10 @@ export class Board {
     const S = A.srcs[si];
     S.buf = buf; S.offsets = p; p += nFrames * 4; S.data = p; S.end = end; S.atlas = atlas;
     const have = end - S.data;
-    for (let f = 0; f < nFrames; f++) {      // the top two bits: 00 pixels, 10 instructions, 11 glyphs (version 6)
+    for (let f = 0; f < nFrames; f++) {      // the top two bits: 00 pixels, 01 compressed (version 7), 10 instructions, 11 glyphs (version 6)
       const o = rd32(buf, S.offsets + 4 * f), kind = o >>> 30, at = o & 0x3FFFFFFF;
-      if (kind === 1 || (kind === 3 && version < 6)) return false;
+      if ((kind === 1 && version < 7) || (kind === 3 && version < 6)) return false;
+      if (kind === 1) { if (!packed.check(buf, S.offsets, S.data, have, nFrames, at)) return false; continue; }
       if (at >= have || (kind >= 2 && (at + 2 > have || at + 2 + rd16(buf, S.data + at) > have))) return false;
       if (kind === 3 && rd16(buf, S.data + at) < 2) return false;
     }
@@ -173,16 +178,25 @@ export class Board {
     c[0] = Math.min(255, Math.trunc(alpha * this.tintR + beta * 255)); c[1] = Math.min(255, Math.trunc(alpha * this.tintG + beta * 241)); c[2] = Math.min(255, Math.trunc(alpha * this.tintB + beta * 220));
   }
 
-  // ---------- drawFrame(): instructions through vec, glyphs through glyphs, or RLE runs of [count][rgb565 big-endian] ----------
+  // ---------- drawFrame(): instructions through vec, glyphs through glyphs, or RLE runs of [count][rgb565 big-endian];
+  // a compressed frame inflated into the window first, and one that does not inflate not drawn, and said once ----------
   drawFrame(src, idx) {
-    const S = this.A.srcs[src], buf = S.buf;
-    const o = rd32(buf, S.offsets + 4 * idx), kind = o >>> 30;
-    let p = S.data + (o & 0x3FFFFFFF);
+    const S = this.A.srcs[src];
+    let buf = S.buf;
+    const o = rd32(buf, S.offsets + 4 * idx);
+    let kind = o >>> 30, p = S.data + (o & 0x3FFFFFFF), end = S.end;
+    if (kind === 1) {
+      const h = packed.head(buf, p), base = h.base === packed.NONE ? -1 : S.data + (rd32(buf, S.offsets + 4 * h.base) & 0x3FFFFFFF);
+      const w = this.win, known = w.bad !== null && w.bad[0] === buf && w.bad[1] === p;
+      const q = w.open(buf, p, base);
+      if (q < 0) { if (!known) this.say(`frame ${idx} does not inflate`); return; }
+      kind = h.kind; buf = w.buf; p = q; end = q + h.size;
+    }
     if (kind === 3) { glyphs.draw(this.fb, S.atlas, buf, p + 2, rd16(buf, p)); return; }     // glyphs keep their colours, as on the board
     if (kind === 2) { this.cv.play(buf, p + 2, rd16(buf, p)); return; }
     const out = this.fb, N = W * H;
     let i = 0, lastIn = 0xFFFF, lastOut = 0;           // as on the board: a frame whose first run is pure white starts it black
-    while (i < N && p + 3 <= S.end) {
+    while (i < N && p + 3 <= end) {
       let n = buf[p];
       let v = (buf[p + 1] << 8) | buf[p + 2]; p += 3;
       if (v !== lastIn) { lastIn = v; lastOut = this.recolor(v); }
@@ -457,7 +471,7 @@ export class Board {
       }
       w++;
     }
-    A.nSeqs = w; A.srcs[si] = newSrc();
+    A.nSeqs = w; this.win.forget(); A.srcs[si] = newSrc();
   }
   dropOldestClip() {                                           // the clip played longest ago; false if none can go
     const A = this.A;

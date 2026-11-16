@@ -7,12 +7,13 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { Board, ESCALATE_MS, LONGHAUL_MS, HOST_TIMEOUT_MS, BL_NIGHT, MAX_SRC } from '../board.mjs';
 import { encode, solid, solidOps, clip } from './fixture.mjs';
+import { inflate } from '../inflate-node.mjs';
 
 const TESTCARD = new Uint8Array(readFileSync(new URL('../testcard/testcard.bin', import.meta.url)));
 
 function make(art = TESTCARD, { random = () => 0, draw = true } = {}) {
   const clock = { t: 0 }, said = [];
-  const b = new Board({ millis: () => clock.t, micros: () => clock.t * 1000, random, say: l => said.push(l) });
+  const b = new Board({ millis: () => clock.t, micros: () => clock.t * 1000, random, say: l => said.push(l), inflate });
   if (!draw) { b.drawFrame = () => {}; b.drawOverlay = () => {}; }      // long runs only need the logic
   b.setup(art);
   const run = (ms, step = 4) => { for (let i = 0; i < ms; i += step) { clock.t += step; b.loop(); } };
@@ -57,7 +58,7 @@ describe('parsing', () => {
   test('wrong magic or version is refused; version 4 has a one-byte sequence count', () => {
     const bad = small(); bad[0] = 0x58;
     assert.equal(new Board().parseArt(bad, bad.length, 0), false);
-    for (const v of [2, 7]) { const x = small(); x[4] = v; assert.equal(new Board().parseArt(x, x.length, 0), false, `version ${v}`); }
+    for (const v of [2, 8]) { const x = small(); x[4] = v; assert.equal(new Board().parseArt(x, x.length, 0), false, `version ${v}`); }
     const v4 = encode({ version: 4, moods: [['idle', 0]], seqs: [[0, 0, 0, 'idle', [0]]], frames: [solid(0)] });
     assert.equal(new Board().parseArt(v4, v4.length, 0), true);
   });

@@ -2,10 +2,12 @@
 // bridge. The link is the bridge's emulator transport: the board's commands arrive as Server-Sent
 // Events (events), what the board says goes back by POST (board), and clips come as the board's
 // POST /clip would bring them (an event named clip, answered on clip). Served by the bridge
-// (python3 tools/buddy_bridge.py --emulator), everything is same origin.
+// (python3 tools/buddy_bridge.py --emulator), everything is same origin. A file's compressed frames are inflated
+// when it arrives (prepare()), since the browser inflates only asynchronously and the board's loop does not wait.
 
 import { Board } from './board.mjs';
 import { W, H } from './vec.mjs';
+import { prepare, prepared } from './packed.mjs';
 
 const CLICK_JOLT = 1.0;                  // g: a knock on the glass, well over the board's default threshold of 0.35
 const $ = id => document.getElementById(id);
@@ -65,7 +67,7 @@ function noDrawings() {                  // setup()'s message when the art is mi
 let timer = 0;
 function boot(art, name) {
   clearTimeout(timer);
-  board = new Board({ say: said, push: present, backlight });
+  board = new Board({ say: said, push: present, backlight, inflate: prepared });
   artName = name;
   if (!board.setup(art)) noDrawings();
   setStatus();
@@ -76,7 +78,9 @@ async function loadArt() {
   try {
     const r = await fetch(artUrl, { cache: 'no-cache' });
     if (!r.ok) throw new Error(r.status);
-    boot(new Uint8Array(await r.arrayBuffer()), artUrl.split('/').pop());
+    const art = new Uint8Array(await r.arrayBuffer());
+    await prepare(art);
+    boot(art, artUrl.split('/').pop());
   } catch (e) {
     log(`no art at ${artUrl} (${e.message}): load a .bin below`, 'note');
     boot(null, '');
@@ -89,8 +93,9 @@ function connect() {
   events = new EventSource('events');
   events.addEventListener('hello', e => { page = JSON.parse(e.data).page; linked = true; log(`bridge connected (page ${page})`, 'note'); setStatus(); });
   events.onmessage = e => { log('→ ' + e.data, 'in'); board.receive(e.data + '\n'); };
-  events.addEventListener('clip', e => {
+  events.addEventListener('clip', async e => {
     const c = JSON.parse(e.data), bytes = Uint8Array.from(atob(c.data), ch => ch.charCodeAt(0));
+    await prepare(bytes);
     const res = board.postClip(bytes, c.name, c.tap);
     log(`→ POST /clip ${c.name} (${bytes.length} bytes${c.tap ? ', tap' : ''}): ${res.status} ${res.body}`, 'in');
     fetch(`clip?page=${page}&id=${c.id}`, { method: 'POST', body: res.body, headers: { 'Content-Type': 'text/plain' } }).catch(() => {});
@@ -117,6 +122,7 @@ $('file').addEventListener('change', async e => {
   const f = e.target.files[0];
   if (!f) return;
   const bytes = new Uint8Array(await f.arrayBuffer());
+  await prepare(bytes);
   if (f.name.endsWith('.clip')) {                      // a clip goes in as POST /clip would put it
     const res = board.postClip(bytes, f.name.replace(/\.clip$/, ''), false);
     log(`POST /clip ${f.name}: ${res.status} ${res.body}`, 'note');

@@ -71,3 +71,5 @@ The phases and what each one involves are in [docs/ROADMAP.md](docs/ROADMAP.md);
 ## Credits
 
 This started as [desk-buddy](https://github.com/joebentham/desk-buddy) by Joe Bentham, a companion called Lump on the same display: the firmware, the bridge, the bake and the enclosure are his. Chris Simpkins's [fork](https://github.com/csimpkins22/desk-buddy) added frames as drawing instructions rendered on the board, clips over Wi-Fi, and reactions to what the terminal runs. Both are MIT, and so is everything here except Sage: see [LICENSE](LICENSE).
+
+The frames are compressed with deflate and inflated on the board by the tinfl of Rich Geldreich's [miniz](https://github.com/richgel999/miniz) 1.15, which the ESP32-S3 carries in its ROM; the checks on the Mac build the same tinfl from `tools/tinfl.h`, taken from miniz 1.15, which is public domain.
