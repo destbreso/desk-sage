@@ -12,11 +12,31 @@ What is here:
 
 ## Gallery
 
-Sage as the board will show it, each animation played through the same bake that writes its frames for the board (`tools/export_frames.py --gif`). On the prism the black around it is glass, so it seems to float.
+Sage as the board will show it, each animation played through the same bake that writes its frames for the board (`tools/export_frames.py --gif`). On the prism the black around it is glass, so it seems to float. Things come into its world for what is happening, and the camera moves round it.
+
+### Every day
 
 <table>
 <tr><td align="center"><img src="gallery/sage/fidget_turn.gif" width="200" alt="Turning round on the spot"><br><sub>Turning round on the spot</sub></td><td align="center"><img src="gallery/sage/idle.gif" width="200" alt="Waiting for something to happen"><br><sub>Waiting for something to happen</sub></td><td align="center"><img src="gallery/sage/working.gif" width="200" alt="Reading while Claude works"><br><sub>Reading while Claude works</sub></td><td align="center"><img src="gallery/sage/alert.gif" width="200" alt="Something needs you"><br><sub>Something needs you</sub></td></tr>
 <tr><td align="center"><img src="gallery/sage/night.gif" width="200" alt="Asleep at night"><br><sub>Asleep at night</sub></td><td align="center"><img src="gallery/sage/done_hearts.gif" width="200" alt="A long job done"><br><sub>A long job done</sub></td><td align="center"><img src="gallery/sage/fidget_mark.gif" width="200" alt="The site's prompt on its face"><br><sub>The site's prompt on its face</sub></td><td align="center"><img src="gallery/sage/fidget_look.gif" width="200" alt="A look over its shoulder"><br><sub>A look over its shoulder</sub></td></tr>
+</table>
+
+### What I am doing
+
+<table>
+<tr><td align="center"><img src="gallery/sage/work_tests_fail.gif" width="200" alt="Tests fail: a bug runs in, and it stomps it"><br><sub>Tests fail: a bug runs in, and it stomps it</sub></td><td align="center"><img src="gallery/sage/work_deploy.gif" width="200" alt="A deploy: its visor fills, the rocket lifts off"><br><sub>A deploy: its visor fills, the rocket lifts off</sub></td><td align="center"><img src="gallery/sage/work_build.gif" width="200" alt="A build: crates land on the pile"><br><sub>A build: crates land on the pile</sub></td></tr>
+</table>
+
+### The camera
+
+<table>
+<tr><td align="center"><img src="gallery/sage/cam_orbit.gif" width="200" alt="All the way round it"><br><sub>All the way round it</sub></td><td align="center"><img src="gallery/sage/cam_crane.gif" width="200" alt="From below to above"><br><sub>From below to above</sub></td><td align="center"><img src="gallery/sage/cam_top.gif" width="200" alt="From straight above"><br><sub>From straight above</sub></td></tr>
+</table>
+
+### Made of the rain
+
+<table>
+<tr><td align="center"><img src="gallery/sage/glyph_form.gif" width="200" alt="Forming out of the rain, eyes first"><br><sub>Forming out of the rain, eyes first</sub></td><td align="center"><img src="gallery/sage/glyph_mode.gif" width="200" alt="Made of glyphs"><br><sub>Made of glyphs</sub></td></tr>
 </table>
 
 ## Roadmap
