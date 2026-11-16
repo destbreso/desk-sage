@@ -201,7 +201,8 @@
       const e = cam.at(eye); far.sort((p, q) => Math.hypot(q[0] - e[0], q[1] - e[1]) - Math.hypot(p[0] - e[0], p[1] - e[1]));
       cone(g, e, far[0], far[1], k, (b.alpha ?? 0.16) / 0.16);
     }
-    g.strokeStyle = G; g.lineCap = "butt";
+    // (round caps: the only kind the board draws)
+    g.strokeStyle = G; g.lineCap = "round";
     lines(); g.globalAlpha = a * 0.5; g.lineWidth = 2.6 * k; g.stroke(); g.globalAlpha = a * 1.6; g.lineWidth = Math.max(0.6, 0.35 * k); g.stroke();
     // a band of brighter light sweeping across it, row by row
     const span = r1 + 1 - r0, rb = r0 + ((t % 72) / 72) * (span + 2) - 1;
