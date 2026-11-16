@@ -20,6 +20,7 @@ It is public, and it names no other project or repository of the author's: only 
 - Its look: illustrated (flat fills shaded in steps, so the board draws it as instructions) for everyday, and made of the rain's glyphs for its special moments (forming, dissolving). No 3D render for now.
 - Nothing here says how Sage is found on the website.
 - Before a look is baked or changed at scale, show the author a sheet (the reference, now, the proposal) and wait for the yes.
+- The README's gallery images carry a fingerprint of their content (`?v=` and the first eight characters of the GIF's SHA-1): after drawing the GIFs again, update every fingerprint, or GitHub's image proxy and browsers keep showing the old ones.
 
 ## No hardware yet
 
