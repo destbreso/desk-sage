@@ -122,7 +122,8 @@
   for (const m of MOMENTS) if (m !== "idle") ((TRANS[`idle>${m}`] = transition("idle", m)), (TRANS[`${m}>idle`] = transition(m, "idle")));
 
   // ── acts, each from idle and back to it ──
-  const act = (name, ticks, poseAt, step = "auto") => (CLIPS[name] = { home: "idle", seq: sheet(ticks, poseAt, step) });
+  // (an act starts and ends in its home mood: the board walks there first; most are at home in idle)
+  const act = (name, ticks, poseAt, step = "auto", home = "idle") => (CLIPS[name] = { home, seq: sheet(ticks, poseAt, step) });
 
   // fidgets: so it never looks like a loop
   act("fidget_glance", 72, (t) => ({ headYaw: q(t < 18 ? -0.55 * back(seg(t, 0, 10)) : t < 36 ? -0.55 + 1.1 * back(seg(t, 18, 28)) : t < 54 ? 0.55 * (1 - ease(seg(t, 36, 46))) : 0, 0.02), look: [0, t >= 36 && t < 54 ? -0.5 : -0.1], bow: t >= 36 && t < 54 ? -0.12 : 0 }));
@@ -142,10 +143,10 @@
   // ── what the author is doing: its desk is a board of the Game of Life ──
   const L = SageThings.life, idle0 = loopAt.idle(0);
   /** an act that starts from idle's first drawing and settles back into it, so neither end jumps */
-  const settled = (ticks, poseAt, inT = 8, outT = 14) => (t) => {
+  const settled = (ticks, poseAt, inT = 8, outT = 14, home = idle0) => (t) => {
     const p = poseAt(t);
-    if (t < inT) return between(idle0, p, ease((t + 1) / (inT + 1)));
-    if (t >= ticks - outT) return between(p, idle0, ease((t - (ticks - outT) + 1) / (outT + 1)));
+    if (t < inT) return between(home, p, ease((t + 1) / (inT + 1)));
+    if (t >= ticks - outT) return between(p, home, ease((t - (ticks - outT) + 1) / (outT + 1)));
     return p;
   };
   // (the camera rises over the desk for these, so the board reads)
@@ -246,6 +247,56 @@
       camX: 40, zoom: 0.84, projecting: q(ease(seg(t, 0, 12)) * (1 - ease(seg(t, 152, 168))), 0.05), things: [{ kind: "board", projected: true, x: 66, z: 18, size: 9, c0: -4, r0: -2, c1: 7, r1: 7, alpha: q(0.16 * ease(seg(t, 0, 12)) * (1 - ease(seg(t, 152, 168))), 0.02) }, ...(cells.length ? [{ kind: "cells", x: 66, z: 18, size: 9, cells }] : [])],
     };
   }));
+
+  // ── how it takes a touch, and the moments its mind had no act for ──
+  // a knock (two quick taps after a quiet): it leans to the glass and looks about, who is there, until it sees it is you
+  act("tap_knock", 100, settled(100, (t) => {
+    const lean = ease(seg(t, 0, 14)) * (1 - ease(seg(t, 74, 86))), side = t < 38 ? -1 : t < 62 ? 1 : 0;
+    return { z: q(0.55 * lean, 0.01), bow: q(-0.1 * lean, 0.01), mood: t >= 66 ? "happy" : "curious",
+      headYaw: q(side * 0.35 * Math.sin(Math.PI * (t < 38 ? seg(t, 12, 38) : seg(t, 38, 62))), 0.01), look: [q(side * 0.6 * lean), q(-0.1 * lean)],
+      squeezed: t >= 62 && t < 66, ...(t >= 76 ? hop(t, 82, 8, 4) : {}), antenna: t >= 66 ? 1 : 0.8 };
+  }));
+  // your taps in a rhythm: it catches the beat and dances to it, bobbing and swaying, and ends on a bigger hop
+  act("rhythm_dance", 124, settled(124, (t) => {
+    const u = t - 8, beat = Math.floor(u / 12), ph = (u % 12) / 12, on = t >= 8 && t < 104;
+    return { mood: "happy", antenna: 1, lift: on ? q(3 * Math.sin(Math.PI * ph), 0.25) : 0, crouch: on && ph > 0.85 ? 1 : 0,
+      roll: on ? q((beat % 2 ? 1 : -1) * 0.08 * Math.sin(Math.PI * ph), 0.01) : 0, headYaw: on ? q(0.14 * Math.sin((2 * Math.PI * u) / 24), 0.01) : 0,
+      rise: on ? q((u % 24) / 24, 1 / 12) : 0, ...(t >= 102 ? hop(t, 106, 10, 7) : {}), burst: t >= 110 ? q(seg(t, 110, 122), 0.05) : 0 };
+  }));
+  // asleep, a tap stirs it: half an eye open, a groggy look, a little shuffle, and back to sleep
+  const night0 = loopAt.night(0);
+  act("sleep_stir", 96, settled(96, (t) => {
+    const up = Math.sin(Math.PI * seg(t, 10, 80));
+    return { ...loopAt.night(t % 96), eyes: up > 0.25 ? null : "sleep", mood: "sleepy", shut: q(0.85 - 0.35 * up, 0.05), crouch: q(6 - 2 * up, 0.25), bow: q(0.2 - 0.12 * up, 0.01),
+      headYaw: t >= 34 && t < 64 ? q(0.15 * Math.sin(Math.PI * seg(t, 34, 64)), 0.01) : 0, squash: t >= 70 && t < 82 ? q(-0.18 * Math.sin(Math.PI * seg(t, 70, 82)), 0.02) : 0 };
+  }, 8, 14, night0), "auto", "night");
+  // out of patience, it minds it and sulks: it turns away, glances back to see if you are watching, turns away again
+  // with a snap, and comes round in the end
+  act("sulk", 156, settled(156, (t) => {
+    const away = ease(seg(t, 0, 16)) * (1 - ease(seg(t, 118, 146))), peek = t >= 52 && t < 64 ? Math.sin(Math.PI * seg(t, 52, 64)) : 0;
+    return { yaw: q(-0.75 * away, 0.01), bow: q(0.16 * away, 0.01), crouch: q(1 * away, 0.25), antenna: q(0.2 + 0.6 * (1 - away), 0.05),
+      mood: away > 0.5 ? "annoyed" : "calm", headYaw: q(0.95 * peek, 0.01), look: [q(0.6 * peek), 0], squeezed: t >= 64 && t < 70,
+      squash: t >= 128 && t < 140 ? q(-0.16 * Math.sin(Math.PI * seg(t, 128, 140)), 0.02) : 0 };
+  }));
+  // out of patience on its charger: do not disturb, its shutter comes down over its visor and goes up again
+  act("dnd", 136, settled(136, (t) => {
+    const down = ease(seg(t, 16, 30)) * (1 - ease(seg(t, 100, 116)));
+    return { charger: q(ease(seg(t, 0, 14)) * (1 - ease(seg(t, 118, 132))), 0.05), crouch: 3, eyes: down > 0.02 ? "shutter" : null, shutter: q(down, 0.05),
+      mood: "sleepy", antenna: q(0.15 + 0.2 * (1 - down), 0.05) };
+  }));
+  // a failed tool call: a start, the visor's cells breaking amber, and it shakes it off
+  act("work_oops", 68, settled(68, (t) => ({ squeezed: t < 6, x: q(t < 4 ? -3 * seg(t, 0, 4) : -3 * (1 - ease(seg(t, 4, 24))), 0.25), ...hop(t, 2, 6, 2),
+    eyes: t >= 4 && t < 26 ? "ash" : null, amber: t < 32, antenna: t < 32 ? (t % 8 < 4 ? 1 : 0.3) : 0.7, mood: t < 30 ? "worried" : "calm",
+    roll: t >= 30 && t < 52 ? q(Math.sin((t - 30) / 1.8) * 0.1 * (1 - seg(t, 30, 52)), 0.01) : 0 })));
+  // its battery near empty: it goes to charge by itself, settles on its pad, and dozes while it fills
+  act("go_charge", 168, settled(168, (t) => {
+    const on = ease(seg(t, 8, 30)) * (1 - ease(seg(t, 140, 160))), sit = ease(seg(t, 30, 50)) * (1 - ease(seg(t, 136, 150)));
+    return { charger: q(on * (0.75 + 0.25 * Math.sin(t / 8)), 0.05), crouch: q(2 + 2.5 * sit, 0.25), bow: q(0.12 * sit, 0.01), mood: sit > 0.5 ? "content" : "sleepy",
+      shut: q(0.2 + 0.55 * sit, 0.05), antenna: q(0.3 + 0.4 * sit * (0.5 + 0.5 * Math.sin(t / 10)), 0.05), rise: sit > 0.5 ? q((t % 48) / 48, 1 / 24) : 0 };
+  }));
+  // a nod: for a commit, or for "seen it" when you tap while it needs you
+  act("nod", 60, settled(60, (t) => ({ mood: "content", bow: q(0.22 * Math.sin(Math.PI * seg(t, 8, 22)) + 0.16 * Math.sin(Math.PI * seg(t, 24, 36)), 0.01), shut: blink(t, 40), antenna: 0.85 })));
+
 
   // ── the camera's moves, and Sage minding the camera ──
   // (a block, a beehive and a blinker on the desk, so the world turns as the camera does)

@@ -75,7 +75,7 @@ test('what has no reaction, or is not a moment for one, plays nothing and says w
   const m = mindWith();
   for (const [s, why] of [
     [{ signal: 'done', busy: true }, /other work/], [{ signal: 'push', ok: false }, /push that failed/],
-    [{ signal: 'oops' }, /failed tool call/], [{ signal: 'lint', ok: true }, /linter/], [{ signal: 'what' }, /not a signal/],
+    [{ signal: 'rollback' }, /rollback/], [{ signal: 'lint', ok: true }, /linter/], [{ signal: 'what' }, /not a signal/],
     [{ signal: 'tests', ok: false, mood: 'alert' }, /needs you/], [{ signal: 'idle', mood: 'night' }, /asleep/],
     [{ signal: 'hello', mood: 'meeting' }, /meeting/],
   ]) {
@@ -211,9 +211,11 @@ test('its battery: drooping once when it falls below a quarter, not again until 
   assert.equal(at(0.5, 10).play, undefined);
   assert.equal(at(0.24, 20).play, 'holo_battery');
   assert.equal(at(0.1, 30).play, undefined);
-  assert.equal(at(0.02, 40).play, undefined);
+  assert.equal(at(0.02, 40).play, 'go_charge', 'near empty, it goes to charge by itself');
+  assert.equal(at(0.01, 45).play, undefined, 'once');
   assert.equal(at(0.3, 50).play, undefined);
   assert.equal(at(0.2, 60).play, 'holo_battery');
+  assert.equal(at(0.02, 70).play, 'go_charge', 'and again once it has been back above');
 });
 
 // its patience, the website's: taps on and on run it out; how it runs out depends on how it is bothered
@@ -233,6 +235,7 @@ test('a tap is a poke, as the website counts it, and patience comes back when it
 test('tapped on and on in the middle of its acts, it runs out with a glitch, and is cross a while', () => {
   const m = mindWith({ tap_hello: 40 / 24, glyph_glitch: 176 / 24, fidget_look: 4 });
   let d, t = T0, n = 0;
+  // (a second apart is a beat, but this art has no dance: each is a poke, in the middle of the act before)
   do d = tap(m, (t += 1)), n++; while (d.play === 'tap_hello' && n < 30);
   assert.equal(d.play, 'glyph_glitch', JSON.stringify(d));
   assert.ok(n >= 4 && n <= 8, `ran out after ${n} taps`);
@@ -243,13 +246,18 @@ test('tapped on and on in the middle of its acts, it runs out with a glitch, and
   assert.equal(tap(m, t + 120).play, 'tap_hello', 'no longer cross, and patient again');
 });
 
-test('tapped on and on, but each time after its act, it minds it and sulks: nothing plays', () => {
-  const m = mindWith({ tap_hello: 40 / 24 });
+test('tapped on and on, but each time after its act, it minds it and sulks', () => {
+  const m = mindWith({ tap_hello: 40 / 24, sulk: 156 / 24 });
   let d, t = T0, n = 0;
   do d = tap(m, (t += 2.4)), n++; while (d.play === 'tap_hello' && n < 60);
-  assert.equal(d.play, undefined);
-  assert.match(d.why, /minds, and sulks/);
+  assert.equal(d.play, 'sulk');
+  assert.match(d.why, /minds it, and sulks/);
   assert.ok(n > 10, `ran out after ${n} taps`);
+  const without = mindWith({ tap_hello: 40 / 24 });
+  t = T0; n = 0;
+  do d = tap(without, (t += 2.4)), n++; while (d.play === 'tap_hello' && n < 60);
+  assert.equal(d.play, undefined, 'an art without the act plays nothing, and says so');
+  assert.match(d.why, /sulks: the art holds none of sulk/);
 });
 
 test('bothered on its charger (its usage at the limit), it will not be disturbed', () => {
@@ -267,8 +275,72 @@ test('bothered on its charger (its usage at the limit), it will not be disturbed
 
 test('shaken (picked up, as the board will feel it) on top of being poked, it gets dizzy', () => {
   const m = mindWith();
-  for (let k = 0; k < 4; k++) assert.equal(tap(m, T0 + k).play, 'tap_hello');
-  const d = m.signal({ signal: 'shake', now: T0 + 4, mood: 'idle' });
+  // (unevenly spaced, so not a beat, and none gentle)
+  for (const k of [0, 1, 2.9, 3.9]) assert.equal(tap(m, T0 + k).play, 'tap_hello');
+  const d = m.signal({ signal: 'shake', now: T0 + 4.5, mood: 'idle' });
   assert.equal(d.play, 'tap_dizzy', JSON.stringify(d));
   assert.equal(m.signal({ signal: 'shake', now: T0 + 100 }).play, undefined, 'one shake alone is no bother worth an act');
 });
+
+// how it takes a touch on the desk: the moment, the rhythm of your taps, and your history with it
+test('asleep, the first tap stirs it, the next wakes it, and woken again and again it sulks', () => {
+  const m = mindWith();
+  const night = (k) => tap(m, T0 + k, { mood: 'night' });
+  assert.equal(night(0).play, 'sleep_stir');
+  assert.equal(night(5).play, 'cam_wake');
+  assert.equal(night(12).play, 'sulk');
+  assert.equal(night(20).why, site.CROSS_ANSWER, 'and cross a while');
+});
+
+test('a knock: two quick taps after a quiet, and it looks out to see who is there', () => {
+  const m = mindWith();
+  assert.equal(tap(m, T0).play, 'tap_hello');
+  assert.equal(tap(m, T0 + 0.8).play, 'tap_knock');
+});
+
+test('taps in a beat make it dance, once; more of the same is poking again', () => {
+  const m = mindWith();
+  const plays = [0, 1, 2].map((k) => tap(m, T0 + 10 + k).play), used = m.patience.used;
+  plays.push(tap(m, T0 + 13).play);
+  assert.equal(plays[3], 'rhythm_dance');
+  assert.ok(m.patience.used <= used, 'play is not a bother');
+  const more = [4, 5, 6, 7].map((k) => tap(m, T0 + 10 + k).play);
+  assert.ok(!more.includes('rhythm_dance'), 'it does not dance again so soon: ' + more);
+});
+
+test('while it needs you a tap is "seen", and it nods; while it reads, it looks up at you', () => {
+  assert.equal(tap(mindWith(), T0, { mood: 'alert' }).play, 'nod');
+  assert.match(tap(mindWith(), T0, { mood: 'working' }).play, /^fidget_(look|glance)$/);
+});
+
+test('the first tap of a new day is a greeting', () => {
+  const m = mindWith();
+  tap(m, T0);
+  assert.match(tap(m, T0 + 24 * 3600).play, /^(hello|glyph_eyes|glyph_form)$/);
+});
+
+test('after it sulked and the crossness passed, a gentle tap makes up, with hearts', () => {
+  const m = mindWith({ tap_hello: 40 / 24, sulk: 156 / 24, done_hearts: 3 });
+  let d, t = T0, n = 0;
+  do d = tap(m, (t += 2.4)), n++; while (d.play !== 'sulk' && n < 60);
+  assert.equal(d.play, 'sulk');
+  assert.equal(tap(m, t + 10).why, site.CROSS_ANSWER);
+  assert.equal(tap(m, t + 60).play, 'done_hearts', 'made up');
+  assert.equal(m.grudge, false);
+});
+
+test('fond of you after many gentle taps, it sometimes answers with hearts', () => {
+  const m = mindWith(undefined, 3);
+  const plays = [];
+  for (let k = 0; k < 60; k++) plays.push(tap(m, T0 + k * 30).play);
+  assert.ok(m.fondness(T0 + 60 * 30) > 0.6, 'fond of you: ' + m.fondness(T0 + 60 * 30));
+  assert.ok(plays.slice(30).includes('done_hearts'), 'hearts now and then');
+  assert.ok(m.fondness(T0 + 60 * 30 + 24 * 3600) < 0.2, 'and it fades over a day apart');
+});
+
+test('a failed tool call startles it, and a commit gets a nod', () => {
+  const m = mindWith();
+  assert.equal(m.signal({ signal: 'oops', now: T0, mood: 'working' }).play, 'work_oops');
+  assert.equal(m.signal({ signal: 'commit', now: T0 + 100, mood: 'working' }).play, 'nod');
+});
+

@@ -24,7 +24,7 @@
     // (a camera a little above it by default, so the desk and what lies on it read)
     tilt: 0.12, orbit: 0, zoom: 1, camX: 0, camY: 0, things: null, bar: 0, footSide: 1, squash: 0, antennaBend: 0, bow: 0,
     mood: "calm", look: [0, 0], shut: 0, squeezed: false, eyes: null, antenna: 0.7,
-    book: 0, page: 0, light: 0, charger: 0, signal: 0, rise: 0, burst: 0, hearts: 0, amber: false, holo: null, projecting: 0, flare: 0,
+    book: 0, page: 0, light: 0, charger: 0, signal: 0, rise: 0, burst: 0, hearts: 0, amber: false, holo: null, projecting: 0, flare: 0, shutter: 1,
   };
 
   /**
@@ -120,7 +120,7 @@
     g.bezierCurveTo(x + s * 0.62, y - s * 0.9, x + s * 1.2, y + s * 0.05, x, y + s * 0.8);
     g.closePath(); g.fill();
   }
-  function special(g, x, y, w, h, eyes, t, bar = 0) {
+  function special(g, x, y, w, h, eyes, t, bar = 0, shutter = 1) {
     g.fillStyle = "#000000"; rr(g, x, y, w, h, h * 0.24); g.fill();
     const cy = y + h / 2, s = h * 0.13;
     g.fillStyle = g.strokeStyle = T.green; g.lineCap = "round"; g.lineJoin = "round"; g.lineWidth = Math.max(0.8, h * 0.06);
@@ -145,8 +145,9 @@
     } else if (eyes === "shutter") {
       // do not disturb: closed eyes, and a graphite shutter lowered over the top of its visor
       for (const cx of [x + w * 0.3, x + w * 0.7]) { g.beginPath(); g.moveTo(cx - w * 0.08, cy + h * 0.08); g.lineTo(cx + w * 0.08, cy + h * 0.08); g.stroke(); }
-      g.save(); rr(g, x, y, w, h, h * 0.24); g.clip(); g.fillStyle = GRAPH[1]; g.fillRect(x, y, w, h * 0.46);
-      g.strokeStyle = GRAPH[3]; g.lineWidth = Math.max(0.6, h * 0.02); for (let i = 1; i < 4; i++) { g.beginPath(); g.moveTo(x, y + h * 0.115 * i); g.lineTo(x + w, y + h * 0.115 * i); g.stroke(); } g.restore();
+      // (`shutter` how far down it is, so it can be seen coming down and going up)
+      g.save(); rr(g, x, y, w, h, h * 0.24); g.clip(); g.fillStyle = GRAPH[1]; g.fillRect(x, y, w, h * 0.46 * shutter);
+      g.strokeStyle = GRAPH[3]; g.lineWidth = Math.max(0.6, h * 0.02); for (let i = 1; i < 4 && h * 0.115 * i < h * 0.46 * shutter; i++) { g.beginPath(); g.moveTo(x, y + h * 0.115 * i); g.lineTo(x + w, y + h * 0.115 * i); g.stroke(); } g.restore();
     } else if (eyes === "dizzy") for (const cx of [x + w * 0.3, x + w * 0.7]) { g.beginPath(); for (let a = 0; a < Math.PI * 4; a += 0.35) { const r = h * 0.17 * (0.15 + a / (Math.PI * 4)), aa = a + t * 0.6; a === 0 ? g.moveTo(cx + r * Math.cos(aa), cy + r * Math.sin(aa)) : g.lineTo(cx + r * Math.cos(aa), cy + r * Math.sin(aa)); } g.stroke(); }
     else if (eyes === "hearts") {
       // it loves what it sees: its eyes red hearts, beating, as in the room
@@ -274,7 +275,7 @@
           gg.globalAlpha = 0.35; gg.strokeStyle = T.seam; gg.lineWidth = 0.6; rr(gg, cx - 35.5, cy - 28.5, 71, 57, 16.5); gg.stroke(); gg.globalAlpha = 1;
           Sage3D.shaded(gg, cx - 33.6, cy - 28.6, 67.2, 57.2, 14.5, GRAPH, { spec: 0 });
           const fx0 = cx - 32.25, fy0 = cy - 27.25, fw = 64.5, fh = 54.5;
-          if (p.eyes) glow(gg, cx, cy, () => special(gg, fx0, fy0, fw, fh, p.eyes, t, p.bar));
+          if (p.eyes) glow(gg, cx, cy, () => special(gg, fx0, fy0, fw, fh, p.eyes, t, p.bar, p.shutter));
           else glow(gg, cx, cy, () => drawSageFace(gg, fx0, fy0, fw, fh, p.mood, { radius: fh * 0.24, scale: fw / 170, look: p.look, shut: p.shut, squeezed: p.squeezed }));
           gg.save(); rr(gg, fx0, fy0, fw, fh, fh * 0.24); gg.clip();
           gg.globalAlpha = 0.13; gg.fillStyle = "#ffffff"; gg.beginPath(); gg.moveTo(fx0, fy0 + fh * 0.32); gg.quadraticCurveTo(fx0 + fw * 0.35, fy0 + fh * 0.05, fx0 + fw * 0.62, fy0); gg.lineTo(fx0, fy0); gg.closePath(); gg.fill();

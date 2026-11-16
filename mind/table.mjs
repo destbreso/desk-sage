@@ -9,7 +9,7 @@ export const SIGNALS = {
   conflict: 'a merge conflict', rollback: 'a rollback', lint: 'a linter ran', big_diff: 'a big diff read',
   done: 'Claude stopped', compact: 'the context compacted', hello: 'a new session after a long quiet',
   oops: 'a failed tool call', waiting: 'waiting for the author', idle: 'idle, about once a minute',
-  tap: 'a tap on the glass', shake: 'shaken', usage: 'the Claude usage left (its battery)',
+  tap: 'a tap on the glass', shake: 'shaken', usage: 'the Claude usage left (its battery)', commit: 'a git commit',
 };
 
 /** A reaction to work preempts one to the author, which preempts life's small things, which preempt idling. */
@@ -43,26 +43,44 @@ export const REACTIONS = {
   compact: { on: [{ signal: 'compact' }], what: 'the context compacted', priority: 'work', cooldown: 60,
     acts: { glyph_rain: 1, glyph_decode: 1 } },
   hello: { on: [{ signal: 'hello' }], what: 'a new session after a long quiet', priority: 'you', cooldown: 60, acts: { hello: 4, glyph_form: 1 } },
+  // a failed tool call: a start, and it shakes it off
+  oops: { on: [{ signal: 'oops' }], what: 'a failed tool call', priority: 'work', cooldown: 20, acts: { work_oops: 1 } },
+  commit: { on: [{ signal: 'commit' }], what: 'a commit', priority: 'work', cooldown: 60, acts: { nod: 1 } },
   // it looks at you
   waiting: { on: [{ signal: 'waiting' }], what: 'waiting for you', priority: 'you', cooldown: 3 * 60, acts: { fidget_look: 1, fidget_glance: 1 } },
 
   // the ones below the mind plays itself: its battery (usage), its idling (idle) and its patience (tap, shake)
   battery_low: { what: 'its battery fell below a quarter', priority: 'you', cooldown: 0, repeats: true, acts: { holo_battery: 1 } },
+  // near empty, it goes to charge by itself, before it runs out
+  battery_charge: { what: 'its battery nearly empty: it goes to charge', priority: 'you', cooldown: 0, repeats: true, acts: { go_charge: 1 } },
   // late at night, the author still at it: it shows the time and yawns, once a night
   late: { what: 'late at night', priority: 'life', cooldown: 12 * 3600, repeats: true, acts: { holo_clock: 1 } },
   idle: { what: 'idle', priority: 'idle', cooldown: 0, acts: { ...FIDGETS, ...NOW_AND_THEN } },
   idle_late: { what: 'idle, late', priority: 'idle', cooldown: 0, acts: { ...FIDGETS, ...NOW_AND_THEN, glyph_doze: 6 } },
   // the author away: only its fidgets
   idle_away: { what: 'idle, alone', priority: 'idle', cooldown: 0, acts: FIDGETS },
+  // how it takes a touch (mind.mjs, touched): what a tap means depends on the moment, the rhythm and your history
   tap: { what: 'a tap', priority: 'you', cooldown: 0, repeats: true, acts: { tap_hello: 1 } },
-  // its patience run out (the website's outOfPatience): dizzy, a glitch; do not disturb and minding it have no act yet
+  loved: { what: 'a tap, from someone it is fond of', priority: 'you', cooldown: 90, repeats: true, acts: { done_hearts: 1 } },
+  look_up: { what: 'a tap while it reads: it looks up at you', priority: 'you', cooldown: 0, repeats: true, acts: { fidget_look: 1, fidget_glance: 1 } },
+  knock: { what: 'a knock: who is there?', priority: 'you', cooldown: 20, repeats: true, acts: { tap_knock: 1 } },
+  rhythm: { what: 'taps in a rhythm: it dances', priority: 'you', cooldown: 20, repeats: true, acts: { rhythm_dance: 1 } },
+  seen: { what: 'a tap while it needs you: seen', priority: 'you', cooldown: 0, repeats: true, acts: { nod: 1 } },
+  morning: { what: 'the first tap of the day', priority: 'you', cooldown: 0, repeats: true, acts: { hello: 3, glyph_eyes: 1, glyph_form: 1 } },
+  stir: { what: 'a tap in its sleep: it stirs', priority: 'you', cooldown: 0, repeats: true, acts: { sleep_stir: 1 } },
+  woken: { what: 'tapped again in its sleep: it wakes', priority: 'you', cooldown: 0, repeats: true, acts: { cam_wake: 1 } },
+  make_up: { what: 'a gentle tap after it sulked: it makes up', priority: 'you', cooldown: 0, repeats: true, acts: { done_hearts: 1 } },
+  // its patience run out (the website's outOfPatience, and on the desk being woken up too often): what each looks like
   dizzy: { what: 'out of patience: dizzy', priority: 'you', cooldown: 0, repeats: true, acts: { tap_dizzy: 1 } },
   glitch: { what: 'out of patience: a glitch', priority: 'you', cooldown: 0, repeats: true, acts: { glyph_glitch: 1 } },
+  dnd: { what: 'out of patience on its charger: do not disturb', priority: 'you', cooldown: 0, repeats: true, acts: { dnd: 1 } },
+  sulk: { what: 'out of patience: it minds it, and sulks', priority: 'you', cooldown: 0, repeats: true, acts: { sulk: 1 } },
 };
 
 /** Moods in which acts would break in on something: nothing plays there but these reactions. */
+const TOUCHED = ['tap', 'loved', 'look_up', 'knock', 'rhythm', 'seen', 'morning', 'stir', 'woken', 'make_up', 'dizzy', 'glitch', 'dnd', 'sulk'];
 export const QUIET = {
-  night: ['tap', 'dizzy', 'glitch'],
-  meeting: ['tap', 'dizzy', 'glitch'],
-  alert: ['waiting', 'tap', 'dizzy', 'glitch'],          // needs you: only looking at you, and taps
+  night: TOUCHED,
+  meeting: TOUCHED,
+  alert: ['waiting', ...TOUCHED],          // needs you: only looking at you, and what a touch brings
 };

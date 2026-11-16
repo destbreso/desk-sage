@@ -20,13 +20,20 @@ Sage as the board will show it, each animation played through the same bake that
 <table>
 <tr><td align="center"><img src="gallery/sage/fidget_turn.gif?v=a78aa4e4" width="200" alt="Turning round on the spot"><br><sub>Turning round on the spot</sub></td><td align="center"><img src="gallery/sage/idle.gif?v=9c243d65" width="200" alt="Waiting for something to happen"><br><sub>Waiting for something to happen</sub></td><td align="center"><img src="gallery/sage/working.gif?v=67d92276" width="200" alt="Reading while Claude works"><br><sub>Reading while Claude works</sub></td><td align="center"><img src="gallery/sage/alert.gif?v=9473d506" width="200" alt="Something needs you"><br><sub>Something needs you</sub></td></tr>
 <tr><td align="center"><img src="gallery/sage/night.gif?v=a38bfdbc" width="200" alt="Asleep at night"><br><sub>Asleep at night</sub></td><td align="center"><img src="gallery/sage/done_glider.gif?v=e16b68dd" width="200" alt="A long job done: a glider crosses its visor"><br><sub>A long job done: a glider crosses its visor</sub></td><td align="center"><img src="gallery/sage/done_hearts.gif?v=6f190c42" width="200" alt="It loves what it sees: its eyes turn to hearts"><br><sub>It loves what it sees: its eyes turn to hearts</sub></td><td align="center"><img src="gallery/sage/fidget_mark.gif?v=93a56245" width="200" alt="The site's prompt on its face"><br><sub>The site's prompt on its face</sub></td></tr>
-<tr><td align="center"><img src="gallery/sage/fidget_look.gif?v=c07e7ba9" width="200" alt="A look over its shoulder"><br><sub>A look over its shoulder</sub></td></tr>
+<tr><td align="center"><img src="gallery/sage/fidget_look.gif?v=c07e7ba9" width="200" alt="A look over its shoulder"><br><sub>A look over its shoulder</sub></td><td align="center"><img src="gallery/sage/go_charge.gif?v=d827c6cf" width="200" alt="Its battery nearly empty, it goes to charge"><br><sub>Its battery nearly empty, it goes to charge</sub></td></tr>
+</table>
+
+### How it takes a touch
+
+<table>
+<tr><td align="center"><img src="gallery/sage/tap_knock.gif?v=37d4d50d" width="200" alt="A knock: it looks out to see who is there"><br><sub>A knock: it looks out to see who is there</sub></td><td align="center"><img src="gallery/sage/rhythm_dance.gif?v=382005f8" width="200" alt="Tap a beat, and it dances"><br><sub>Tap a beat, and it dances</sub></td><td align="center"><img src="gallery/sage/sleep_stir.gif?v=264c7e16" width="200" alt="Tapped in its sleep, it stirs"><br><sub>Tapped in its sleep, it stirs</sub></td><td align="center"><img src="gallery/sage/sulk.gif?v=a6d823fa" width="200" alt="Out of patience, it sulks"><br><sub>Out of patience, it sulks</sub></td></tr>
+<tr><td align="center"><img src="gallery/sage/dnd.gif?v=3f71b293" width="200" alt="On its charger: do not disturb"><br><sub>On its charger: do not disturb</sub></td><td align="center"><img src="gallery/sage/nod.gif?v=1d0906ca" width="200" alt="Seen it: a nod"><br><sub>Seen it: a nod</sub></td></tr>
 </table>
 
 ### What I am doing
 
 <table>
-<tr><td align="center"><img src="gallery/sage/work_tests_fail.gif?v=6df82dfd" width="200" alt="Tests fail: a glitch scuttles in, and it stomps it"><br><sub>Tests fail: a glitch scuttles in, and it stomps it</sub></td><td align="center"><img src="gallery/sage/work_deploy.gif?v=eeaac056" width="200" alt="A deploy: the site's prompt takes off"><br><sub>A deploy: the site's prompt takes off</sub></td><td align="center"><img src="gallery/sage/work_build.gif?v=7705a514" width="200" alt="A build: its own modules land on the pile"><br><sub>A build: its own modules land on the pile</sub></td></tr>
+<tr><td align="center"><img src="gallery/sage/work_tests_fail.gif?v=6df82dfd" width="200" alt="Tests fail: a glitch scuttles in, and it stomps it"><br><sub>Tests fail: a glitch scuttles in, and it stomps it</sub></td><td align="center"><img src="gallery/sage/work_deploy.gif?v=eeaac056" width="200" alt="A deploy: the site's prompt takes off"><br><sub>A deploy: the site's prompt takes off</sub></td><td align="center"><img src="gallery/sage/work_build.gif?v=7705a514" width="200" alt="A build: its own modules land on the pile"><br><sub>A build: its own modules land on the pile</sub></td><td align="center"><img src="gallery/sage/work_oops.gif?v=ff7ae232" width="200" alt="A failed tool call: a start, shaken off"><br><sub>A failed tool call: a start, shaken off</sub></td></tr>
 </table>
 
 ### On its Life board

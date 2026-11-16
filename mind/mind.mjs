@@ -9,6 +9,11 @@ import { PRIORITY, QUIET, REACTIONS, RECENT, SIGNALS } from './table.mjs';
 export const TOUCH = 0.5;
 /** Its battery is the author's Claude usage left: below a quarter it droops, and this near empty it is charging. */
 export const LOW = 0.25, CHARGING = 0.03;
+/** How it reads your taps: a gentle one comes this long after the one before; a knock is two this close after a quiet
+ *  (the board reports taps no closer than 0.6 s); a beat is four taps evenly spaced, each this far apart. */
+export const GENTLE = 2.5, KNOCK = 0.95, QUIET_BEFORE = 3, BEAT = [0.6, 1.6];
+/** How fond of you it is, from 0 to 1: gentle taps warm it, a sulk cools it, and it fades by half in this many hours. */
+export const FOND_HALF = 8;
 /** Before an act starts the board walks back to idle; an act whose length the art does not say is taken as this long. */
 const LEAD = 0.5, GUESS = 4;
 const HISTORY = 50;
@@ -33,6 +38,11 @@ export class Mind {
     this.crossUntil = -Infinity;
     this.battery = null;               // the author's Claude usage left, 0 to 1
     this.low = false;                  // below a quarter: it has drooped and will not again until it goes back above
+    this.charged = false;              // near empty: it has gone to charge and will not again until it goes back above
+    this.taps = [];                    // when you last tapped, newest last
+    this.tapDay = null;                // the day of your last tap
+    this.grudge = false;               // it sulked, and has not made up yet
+    this.fond = 0; this.fondAt = 0;    // how fond of you it is, and when that was last set
   }
 
   /** What the art holds: a list of names, or names with their length in seconds. */
@@ -52,8 +62,8 @@ export class Mind {
     if (!Object.hasOwn(SIGNALS, s.signal)) return nothing('not a signal it knows');
     if (s.signal === 'usage') return this.usage(now, s);
     if (s.signal === 'idle') return this.idle(now, s);
-    if (s.signal === 'tap') return this.bothered(now, s, { hovered: true });
-    if (s.signal === 'shake') return this.bothered(now, s, { lifted: true });
+    if (s.signal === 'tap') return this.touched(now, s);
+    if (s.signal === 'shake') return this.spend(now, s, { lifted: true }) || nothing(now < this.crossUntil ? this.site.CROSS_ANSWER || 'still cross' : 'shaken, and patient still');
     const name = Object.keys(REACTIONS).find((n) => (REACTIONS[n].on || []).some((p) => matches(p, s)));
     if (name) return this.react(name, now, s);
     return nothing(`nothing in the table for ${SIGNALS[s.signal]}${s.ok === false ? ' that failed' : ''}${s.busy ? ', with other work going on' : ''}`);
@@ -114,10 +124,14 @@ export class Mind {
   usage(now, s) {
     const b = Number(s.battery);
     if (s.battery === null || s.battery === undefined || !Number.isFinite(b)) return nothing('no battery reading');
-    const first = this.battery === null, low = b < LOW;
+    const first = this.battery === null, low = b < LOW, empty = b <= CHARGING;
     this.battery = b;
+    // near empty it goes to charge by itself, once, before it runs out (and has drooped by then, whatever it played)
+    if (empty && !first && !this.charged) { this.charged = this.low = true; return this.react('battery_charge', now, s); }
+    if (!empty && b > CHARGING + 0.02) this.charged = false;
     if (first || !low || this.low) {
       this.low = low;
+      this.charged = this.charged || (first && empty);
       return nothing(`battery at ${percent(b)}`);
     }
     this.low = true;
@@ -135,21 +149,73 @@ export class Mind {
     this.calm = Math.max(this.calm ?? now, now);
   }
 
+  /** How fond of you it is now: what it was, faded by half every FOND_HALF hours. */
+  fondness(now) { return this.fond * 0.5 ** (Math.max(0, now - this.fondAt) / (FOND_HALF * 3600)); }
+  warm(now, by) { this.fond = Math.max(0, Math.min(1, this.fondness(now) + by)); this.fondAt = now; }
+
+  /** Four taps evenly spaced, a beat apart: play, not a bother. */
+  rhythm() {
+    const t = this.taps.slice(-4); if (t.length < 4) return false;
+    const gaps = t.slice(1).map((x, i) => x - t[i]);
+    return gaps.every((g) => g >= BEAT[0] && g <= BEAT[1]) && Math.max(...gaps) / Math.min(...gaps) < 1.4;
+  }
+
+  /**
+   * How it takes a touch. What a tap means depends on the moment (asleep, reading, needing you), on the rhythm of your
+   * taps (a knock, a beat to dance to) and on your history with it (the first tap of the day, a grudge after it sulked,
+   * how fond of you it has grown). Only a plain poke spends its patience, as the website counts it; running out, it
+   * stays cross a while, and a gentle tap after that makes up.
+   */
+  touched(now, s) {
+    this.rest(now);
+    const prev = this.taps[this.taps.length - 1] ?? -Infinity, before = this.taps[this.taps.length - 2] ?? -Infinity, gap = now - prev;
+    this.taps = [...this.taps, now].slice(-8);
+    const day = new Date(now * 1000).toDateString(), firstToday = this.tapDay !== null && this.tapDay !== day;
+    this.tapDay = day;
+    // cross, whatever the moment: answered with the website's words for it
+    if (now < this.crossUntil) return nothing(this.site.CROSS_ANSWER || 'still cross');
+    // asleep: the first tap stirs it, the next wakes it, and woken again and again it sulks
+    if (s.mood === 'night') {
+      const lately = this.taps.filter((x) => now - x < 90).length;
+      if (lately === 1) return this.react('stir', now, s);
+      if (lately === 2) return this.react('woken', now, s);
+      return this.runOut(now, s, 'sulk');
+    }
+    // (a moment with no act to show it, or one that has just played, is a plain poke instead)
+    const as = (name) => { const d = this.react(name, now, s); return d.play ? d : null; };
+    let d;
+    if (this.grudge && gap >= GENTLE && (d = as('make_up'))) { this.grudge = false; this.warm(now, 0.2); return d; }
+    // a beat is play while it is play: once it has danced, more of the same is poking again
+    if (this.rhythm() && (d = as('rhythm'))) { this.taps = []; return d; }
+    if (gap < KNOCK && prev - before > QUIET_BEFORE && (d = as('knock'))) return d;
+    if (s.mood === 'alert') return this.react('seen', now, s);
+    if (firstToday && s.around !== false && (d = as('morning'))) { this.warm(now, 0.1); return d; }
+    const out = this.spend(now, s, { hovered: true });
+    if (out) return out;
+    if (gap >= GENTLE) this.warm(now, 0.04);
+    if (s.mood === 'working' && (d = as('look_up'))) return d;
+    if (this.fondness(now) > 0.6 && this.random() < 0.35 && (d = as('loved'))) return d;
+    return this.react('tap', now, s);
+  }
+
   /** A bother, counted as the website counts it: a tap is a poke (a shake, being picked up), a bother in the middle of
-   *  an act is being gone to, and at its limit it is on its charger. Run out, it is dizzy, glitches, will not be
-   *  disturbed or minds it, and stays cross a while (30 to 50 seconds, as on the website). */
-  bothered(now, s, how) {
+   *  an act is being gone to, and at its limit it is on its charger. Its decision if its patience ran out, or null. */
+  spend(now, s, how) {
     this.rest(now);
     const bother = { hovered: !!how.hovered, goneTo: this.busy(now), lifted: !!how.lifted, apart: false, charging: this.charging(s) };
     const ran = this.site.stepPatience(this.patience, bother, TOUCH);
     this.calm = Math.max(this.calm, now + TOUCH);
-    if (ran) {
-      this.crossUntil = now + 30 + this.random() * 20;
-      const out = this.site.outOfPatience(bother);
-      if (out === 'dizzy' || out === 'glitch') return this.react(out, now, s);
-      return nothing(out === 'dnd' ? 'out of patience on its charger: do not disturb (no act for it yet)' : 'out of patience: it minds, and sulks (no act for sulking yet)');
-    }
-    if (now < this.crossUntil) return nothing(this.site.CROSS_ANSWER || 'still cross');
-    return how.hovered ? this.react('tap', now, s) : nothing('shaken, and patient still');
+    if (!ran) return null;
+    const out = this.site.outOfPatience(bother);
+    return this.runOut(now, s, out === 'dizzy' || out === 'glitch' || out === 'dnd' ? out : 'sulk');
+  }
+
+  /** Out of patience: what that looks like, then cross a while (30 to 50 seconds, as on the website), a grudge until a
+   *  gentle tap makes up, and a little less fond of you. */
+  runOut(now, s, name) {
+    this.crossUntil = now + 30 + this.random() * 20;
+    this.grudge = true;
+    this.warm(now, -0.15);
+    return this.react(name, now, s);
   }
 }

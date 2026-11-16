@@ -47,37 +47,44 @@ Never in a message: a command, a prompt, a path or any output of the author's wo
 | `push` | `ok` | `git push` | `life_deploy`, `done_glider` |
 | `deploy` | `ok` | a deploy command | `work_deploy`, `life_deploy` |
 | `conflict` | `ok` | a merge, rebase, pull or cherry-pick that failed with a conflict | `tap_dizzy`, `glyph_glitch` |
+| `commit` | `ok` | `git commit` | `nod`, a minute apart |
 | `rollback`, `lint`, `big_diff` | `ok` | a revert, reset or restore; a linter; a diff or show over 20 KB | nothing yet |
 | `done` | `busy` | Claude stopped; `busy` when other sessions still work or wait | not busy: `done_glider`, `done_hearts`, `glyph_joy`, `holo_screen_self`, ten minutes apart, shared with tests passing |
 | `compact` | | the context is compacted (PreCompact) | `glyph_rain`, `glyph_decode` |
 | `hello` | | the first session after two quiet hours | `hello`, `glyph_form` |
-| `oops` | | a tool call failed while working, and no signal above played an act | nothing yet |
+| `oops` | | a tool call failed while working, and no signal above played an act | `work_oops`, a start it shakes off, twenty seconds apart |
 | `waiting` | | a session has waited for the author more than a minute, every 30 s while it waits | `fidget_look`, `fidget_glance`, three minutes apart |
 | `idle` | `around`, `late` | about once a minute while idle; `around`: the author was active in the last half hour; `late`: the night window (from midnight to eight) | mostly fidgets, now and then the camera, a hologram or the rain; late, `holo_clock` once a night and `glyph_doze` now and then; away, only fidgets |
-| `usage` | `battery` | the Claude usage left (one minus the busier window's share) changed | `holo_battery` when it falls below a quarter, then not until it has been back above |
-| `tap` | `battery` | the board felt a tap | `tap_hello` while its patience lasts (below) |
+| `usage` | `battery` | the Claude usage left (one minus the busier window's share) changed | `holo_battery` when it falls below a quarter, then not until it has been back above; `go_charge` when it is near empty (3% or less), once, before it runs out |
+| `tap` | `battery`, `around` | the board felt a tap | it depends on the moment, the rhythm and your history with it (below) |
 | `shake` | `battery` | not sent yet: the board feels no shake | a lift, for its patience |
 
-The mood decides what may break in: while asleep (`night`) or at a meeting's alarm (`meeting`) only taps play, and while something needs the author (`alert`) only `waiting` and taps.
+The mood decides what may break in: while asleep (`night`) or at a meeting's alarm (`meeting`) only what a touch brings plays, and while something needs the author (`alert`) only `waiting` and what a touch brings.
 
 ## How it chooses
 
-- Only acts the art holds, and its why names the ones of the table the art lacks. The committed art predates the holograms, the Life acts, `done_hearts` and `glyph_form`, so those are skipped.
+- Only acts the art holds, and its why names the ones of the table the art lacks.
 - A reaction to work preempts one to the author, which preempts late at night, which preempts idling: while an act plays, a less urgent reaction plays nothing. The board does not cut an act short: a more urgent one waits for it to end.
 - A cooldown per reaction, from its last act.
 - Weights: a lower weight is a rarer act.
 - No repeats: none of the last six acts chosen while at least two others are left to weigh; otherwise as the website picks a pastime, each the less likely the sooner it was chosen, and never the one just chosen unless repeating it is the reaction's meaning (a tap, its battery).
 
-## Its patience on the desk
+## How it takes a touch
 
-The website's `newPatience`, `stepPatience` and `outOfPatience`, counted as the website counts them: bothers use it up and it comes back when it is left alone. On the desk:
+On the desk, Sage is given a way of its own to take being touched, deeper than the website's (the author gave it a free hand here). What a tap means depends on three things: the moment, the rhythm of your taps, and your history with it. Its patience is still the website's `newPatience`, `stepPatience` and `outOfPatience`, but only a plain poke spends it.
 
-- A tap is a poke, a finger on the glass for half a second.
-- A tap while an act is still playing is being gone to: it costs more, and running out there is a glitch.
-- With its battery at 3% or less it is on its charger: bothering it costs more, and running out there is do not disturb.
-- A shake is being picked up, and running out then is dizzy. The board does not feel one yet.
+- **Asleep** (`night`): the first tap stirs it (`sleep_stir`: half an eye open, and back to sleep), the next wakes it (`cam_wake`), and woken again and again in a minute and a half it sulks.
+- **A knock**, two quick taps (under 0.95 s apart, the board reports none closer than 0.6 s) after three quiet seconds: it leans to the glass and looks out to see who is there (`tap_knock`).
+- **A beat**, four taps evenly spaced 0.6 to 1.6 s apart: it dances to it (`rhythm_dance`). That is play, not a bother. Once it has danced it will not again for twenty seconds, and more of the same is poking again.
+- **While it needs you** (`alert`): your tap is "seen it" (the bridge snoozes the alert), and it nods (`nod`).
+- **While it reads** (`working`): it looks up at you (`fidget_look`, `fidget_glance`), and back to its book.
+- **The first tap of a new day**, with you around: a greeting (`hello`, `glyph_eyes`, `glyph_form`).
+- **Otherwise a tap is a poke**: `tap_hello` while its patience lasts. A poke in the middle of an act is being gone to and costs more; on its charger (battery at 3% or less) it costs more too.
+- **Running out**: picked up (a shake, which the board does not feel yet), it is dizzy (`tap_dizzy`); gone to in the middle of an act, it glitches (`glyph_glitch`); on its charger, do not disturb (`dnd`: its shutter comes down); otherwise it minds it and sulks (`sulk`: it turns away, glances back to see if you are watching, and turns away again). Then it is cross for 30 to 50 seconds, as on the website, and taps are answered with the website's own words for it.
+- **A grudge, and making up**: after running out it holds a grudge; once the crossness has passed, a gentle tap (2.5 s or more after the one before) makes up, with hearts (`done_hearts`).
+- **Fondness**: gentle taps warm it a little, the first of the day more, making up more still, and running out cools it; it fades by half every eight hours. Fond of you (above 0.6), about one tap in three is answered with hearts instead of a hello.
 
-Run out, it plays `tap_dizzy` (dizzy) or `glyph_glitch` (a glitch); do not disturb and minding it (it sulks) have no act yet, so nothing plays and the why says so. Then it is cross for 30 to 50 seconds, as on the website: taps play nothing, answered with the website's own words for it.
+When the art lacks the act for a moment, or the moment has just played, the tap is a plain poke instead.
 
 ## The contract with the art
 
