@@ -1,7 +1,8 @@
 // Desk Buddy — Lump frame player.
 // Plays the hand-drawn frames baked from design/lump.html (tools/export_frames.py -> data/lump.bin).
 // Most frames are stored as drawing instructions and drawn here by vec.h, frames made of text as glyphs
-// drawn by glyphs.h, and the rest as pixels.
+// drawn by glyphs.h, and the rest as pixels; from version 7 most of them compressed, inflated by the ROM's tinfl
+// through packed.h.
 // The frames live in their own flash partition ("lump"), not in the program, so the art and the
 // program can each be updated over Wi-Fi on their own (tools/ota.py; see "Updates" below).
 // The previous Vec firmware lives in archive/vec_main.cpp.
@@ -79,6 +80,7 @@
 #define VEC_SWAPPED                    // the sprite buffer holds byte-swapped RGB565
 #include "vec.h"
 #include "glyphs.h"
+#include "packed.h"
 
 constexpr int PIN_SCLK = 40, PIN_MOSI = 41, PIN_DC = 38, PIN_CS = 39, PIN_RST = 42, PIN_BL = 20;
 constexpr bool PRISM_MIRROR = true;  // rotations 4–7 are mirrored for the prism
@@ -108,6 +110,8 @@ class LGFX : public lgfx::LGFX_Device {
 static LGFX tft;
 static LGFX_Sprite fb(&tft);
 static vec::Canvas cv;                 // draws instruction frames straight into fb
+static packed::Window win;             // compressed frames are inflated here (its buffer in PSRAM)
+static tinfl_decompressor inflater;    // tinfl's state, 10,992 bytes: static, as it is too big for the loop's stack
 
 // ---------- animation data: the "lump" flash partition, memory-mapped, plus any clips sent over Wi-Fi ----------
 static const esp_partition_t* artPart = nullptr;
@@ -157,8 +161,8 @@ static bool parseArt(const uint8_t* buf, size_t size, int si) {
   bool clip = si > 0;
   if (memcmp(p, "LUMP", 4) != 0) return false;
   p += 4;
-  uint16_t version = rd16(p); p += 2;            // 3: every frame is pixels. 4: a frame may be instructions. 5: up to 65535 sequences. 6: glyph frames and their atlas
-  if (version < 3 || version > 6) return false;
+  uint16_t version = rd16(p); p += 2;            // 3: every frame is pixels. 4: a frame may be instructions. 5: up to 65535 sequences. 6: glyph frames and their atlas. 7: compressed frames
+  if (version < 3 || version > 7) return false;
   uint16_t nFrames = rd16(p); p += 2;
   uint8_t nMoods = *p++, fps = *p++, moodOf[MAX_MOODS];
   if (nMoods > MAX_MOODS) return false;
@@ -193,9 +197,10 @@ static bool parseArt(const uint8_t* buf, size_t size, int si) {
   Src& S = A.srcs[si];
   S.offsets = p; p += nFrames * 4; S.data = p; S.end = end; S.atlas = atlas;
   size_t have = end - S.data;
-  for (int f = 0; f < nFrames; f++) {             // the top two bits: 00 pixels, 10 instructions, 11 glyphs (version 6)
+  for (int f = 0; f < nFrames; f++) {             // the top two bits: 00 pixels, 01 compressed (version 7), 10 instructions, 11 glyphs (version 6)
     uint32_t o = rd32(S.offsets + 4 * f), kind = o >> 30; size_t at = o & 0x3FFFFFFF;
-    if (kind == 1 || (kind == 3 && version < 6)) return false;
+    if ((kind == 1 && version < 7) || (kind == 3 && version < 6)) return false;
+    if (kind == 1) { if (!packed::check(S.offsets, S.data, have, nFrames, at)) return false; continue; }
     if (at >= have || (kind >= 2 && (at + 2 > have || at + 2 + rd16(S.data + at) > have))) return false;
     if (kind == 3 && rd16(S.data + at) < 2) return false;
   }
@@ -236,17 +241,27 @@ static void recolour8(uint8_t* c) {
 // A frame is drawing instructions (vec.h draws them), glyphs (glyphs.h), or pixels: RLE runs of
 // [count][rgb565 big-endian]. The sprite buffer wants byte-swapped RGB565, which is big-endian byte
 // order, so each run's two bytes go in as stored (then recoloured). Glyphs keep their colours: the
-// body-colour swap was made for Lump's magenta (docs/ROADMAP.md, Phase 6).
+// body-colour swap was made for Lump's magenta (docs/ROADMAP.md, Phase 6). A compressed frame is first
+// inflated into the window; one that does not inflate is not drawn, and said once.
 static void drawFrame(uint8_t src, uint16_t idx) {
   const Src& S = A.srcs[src];
   uint32_t o = rd32(S.offsets + 4 * idx), kind = o >> 30;
   const uint8_t* p = S.data + (o & 0x3FFFFFFF);
+  const uint8_t* end = S.end;
+  if (kind == 1) {
+    packed::Head h = packed::head(p);
+    const uint8_t* base = h.base == packed::NONE ? nullptr : S.data + (rd32(S.offsets + 4 * h.base) & 0x3FFFFFFF);
+    bool known = win.bad == p;
+    const uint8_t* q = win.open(p, base);
+    if (!q) { if (!known) Serial.printf("frame %u does not inflate\n", idx); return; }
+    kind = h.kind; p = q; end = q + h.size;
+  }
   if (kind == 3) { glyphs::draw((uint16_t*)fb.getBuffer(), S.atlas, p + 2, rd16(p)); return; }
   if (kind == 2) { cv.play(p + 2, rd16(p)); return; }
   uint16_t* out = (uint16_t*)fb.getBuffer();
   int i = 0;
   uint16_t lastIn = 0xFFFF, lastOut = 0;
-  while (i < 240 * 240 && p + 3 <= S.end) {
+  while (i < 240 * 240 && p + 3 <= end) {
     int n = p[0]; uint16_t v = p[1] | (p[2] << 8); p += 3;
     if (v != lastIn) { lastIn = v; lastOut = recolor(v); }
     v = lastOut;
@@ -758,7 +773,7 @@ static void dropClip(int si) {
     }
     w++;
   }
-  A.nSeqs = w; free(A.srcs[si].own); A.srcs[si] = Src();
+  A.nSeqs = w; win.forget(); free(A.srcs[si].own); A.srcs[si] = Src();
 }
 // Make room by dropping the clip played longest ago; false if there's none he can drop.
 static bool dropOldestClip() {
@@ -832,7 +847,8 @@ void setup() {
   cv.fb = (uint16_t*)fb.getBuffer(); cv.recolour = recolour8;
   cv.acc = (float*)heap_caps_calloc(vec::STRIDE * (vec::H + 1), sizeof(float), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   for (auto& m : cv.clips) m = (uint8_t*)heap_caps_malloc(vec::W * vec::H, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-  if (!cv.acc || !mapArt() || !parseArt(art, artSize, 0)) {
+  win.buf = (uint8_t*)heap_caps_calloc(packed::WINDOW + packed::SLACK, 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT); win.dec = &inflater;
+  if (!cv.acc || !win.buf || !mapArt() || !parseArt(art, artSize, 0)) {
     A.ok = false;
     Serial.println("err lump art missing or bad (send it: tools/ota.py --art)");
     tft.setTextColor(lgfx::color565(255, 241, 220)); tft.setTextDatum(middle_center);
