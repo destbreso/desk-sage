@@ -1,0 +1,32 @@
+# desk-sage
+
+Sage, the robot of destbreso.com, as a desk companion on a Waveshare ESP32-S3-LCD-1.3 glass prism display, reacting to what happens on the author's computer. The engine is Joe Bentham's desk-buddy with Chris Simpkins's fork on top (both MIT); Sage is the author's own character.
+
+Read first: `README.md`, then `docs/ROADMAP.md` (only what is left, and the questions that are the author's), `docs/HISTORY.md` (what is done and how it was checked), then `LICENSE-ART.md`.
+
+## This repository names only destbreso.com
+
+It is public, and it names no other project or repository of the author's: only the website. Sage's face, mood and patience come from the website's own code through `tools/sync-site.sh`, which reads the path in `SAGE_SITE` on the author's machine; anything that depends on one of the author's other projects (a mark Sage shows for it, a command it reacts to) lives in the bridge's local config, never in this repository.
+
+## Sage is not open source
+
+- Sage's art (`design/`, every baked frame and clip of it, its voice and sounds, its pictures) is all rights reserved (`LICENSE-ART.md`); the rest is MIT. Keep the MIT notices in `LICENSE` and the credits in the README.
+- None of Lump's art comes back: not Joe's drawings, clips, sounds or skill, and not Chris's clips or clip kit (CC BY-NC, and drawn on Lump's model). The `upstream` (joebentham/desk-buddy) and `simpkins` (csimpkins22/desk-buddy) remotes are for code only; a merge from either leaves `design/` and every Lump asset out. An idea taken from their clips is rewritten for Sage, never copied.
+
+## Who Sage is
+
+- Sage's personality is already defined on destbreso.com: alive and never looping (long rests with fidgets, cooldowns, no repeats), likes being looked at, curious at what moves, calm or sleepy when left alone, cross for a while when wronged, its patience spent by bothers and coming back when left alone (dizzy, a glitch or do not disturb when it runs out), drooping below a quarter of its battery, dozing at night. On the desk it is respected and given more depth, never changed into someone else.
+- Its face, mood and patience are the website's own code (`design/site/sage-site.js`, generated: never edited by hand). Its body is drawn from the 3D model's own measurements.
+- Its look: illustrated (flat fills shaded in steps, so the board draws it as instructions) for everyday, and made of the rain's glyphs for its special moments (forming, dissolving). No 3D render for now.
+- Nothing here says how Sage is found on the website.
+- Before a look is baked or changed at scale, show the author a sheet (the reference, now, the proposal) and wait for the yes.
+
+## No hardware yet
+
+- Everything is built and checked in the emulator (`emulator/`) against the real bridge. The firmware is compiled but not flashed until the board arrives; a check that needs the board is said to be missing, never assumed.
+- Heavy jobs (bakes, renders, compiles in a loop) run under `nice -n 19`.
+
+## The author's machine
+
+- The bridge reads Claude Code's hooks, prompts and commands: it keeps them on the machine, never sends them anywhere, and logs no more than a reaction needs.
+- English in code, comments, logs and docs; no em or en dashes; one paragraph per line in markdown. Commits carry no AI co-author trailer. Commit locally; push only when the author asks.
