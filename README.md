@@ -9,6 +9,7 @@ What is here:
 - **The bridge** on the Mac (`tools/buddy_bridge.py`), which hears Claude Code's hooks and what the terminal runs and tells the board over USB or Wi-Fi, and **Sage's mind** (`mind/`), a small Node process beside it that chooses what Sage does, with its patience from the website's own code. The bridge tells it only what kind of thing happened, never what I typed or ran.
 - **The emulator** (`emulator/`), a web page that plays the frames exactly as the board does and plugs into the bridge as if it were the board, so everything can be built and tried before the hardware is on the desk.
 - **How to build one** ([docs/BUILD.md](docs/BUILD.md)): what to buy, where, and what it costs (about US$27 for the device), and how it goes together.
+- **The hardware** ([hardware/index.html](hardware/index.html)): the board, its display and the prism in 3D at their real sizes, to turn, take apart down to their smallest parts and put back together, each part with where its facts come from.
 - **The tools** that bake drawings into frames, check each frame against the browser's own drawing (`tools/vec_check.cpp`), update the board over the air, and print the enclosure.
 
 ## Gallery
@@ -63,6 +64,15 @@ Sage as the board will show it, each animation played through the same bake that
 <tr><td align="center"><img src="gallery/sage/glyph_decode.gif?v=07fdc65b" width="200" alt="Scrambled, then decoded row by row"><br><sub>Scrambled, then decoded row by row</sub></td><td align="center"><img src="gallery/sage/glyph_scan.gif?v=632928e7" width="200" alt="Following a scan line with its eyes"><br><sub>Following a scan line with its eyes</sub></td><td align="center"><img src="gallery/sage/glyph_glitch.gif?v=91a8883d" width="200" alt="Tests failing, in glyphs"><br><sub>Tests failing, in glyphs</sub></td><td align="center"><img src="gallery/sage/glyph_joy.gif?v=16dfeca7" width="200" alt="So happy it flies apart"><br><sub>So happy it flies apart</sub></td></tr>
 <tr><td align="center"><img src="gallery/sage/glyph_catch.gif?v=b90b57b0" width="200" alt="Rained back in from the top"><br><sub>Rained back in from the top</sub></td><td align="center"><img src="gallery/sage/glyph_think.gif?v=6ca3dafd" width="200" alt="Thinking, the rain pouring into its head"><br><sub>Thinking, the rain pouring into its head</sub></td><td align="center"><img src="gallery/sage/glyph_doze.gif?v=9fb27353" width="200" alt="Dozing in a slow rain"><br><sub>Dozing in a slow rain</sub></td></tr>
 </table>
+
+### The hardware
+
+<table>
+<tr><td align="center"><img src="gallery/hardware/taken-apart.gif?v=c4363db4" width="266" alt="The device taken apart level by level and put back together"><br><sub>Taken apart level by level, then put back together</sub></td><td align="center"><img src="gallery/hardware/prism-and-display.gif?v=a4ba227e" width="266" alt="The prism splitting into its two halves and the display coming apart into its layers"><br><sub>The prism in its two halves, the display in its layers</sub></td><td align="center"><img src="gallery/hardware/board.gif?v=775dce35" width="266" alt="The board turning while its parts lift off their pads and settle back"><br><sub>The board's parts lifting off their pads</sub></td></tr>
+<tr><td align="center" colspan="3"><img src="gallery/hardware/whole.png?v=be42127b" width="800" alt="The whole device with its parts named: the prism cube, Sage reflected in it, the display and the stand"><br><sub>The whole thing, and why Sage stands upright in the glass</sub></td></tr>
+</table>
+
+All of it comes from [hardware/index.html](hardware/index.html), which opens in any browser from a clone of this repository: drag it round, step through the levels or run the montage, and tap any part to read what it is and where its facts come from.
 
 ## Roadmap
 
