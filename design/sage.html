@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sage on the desk</title>
+<!-- Sage's desk: every mood, transition and act, played as the board plays them, in a prism; ?sheet lays them out to
+     review. The bake (tools/export_frames.py) reads window.__sage from here. Part of Sage's art: see LICENSE-ART.md. -->
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; background: #0d100f; color: #cfd3cf; font: 13px/1.45 ui-monospace, Menlo, monospace; }
+  main { display: flex; gap: 28px; padding: 24px; align-items: flex-start; flex-wrap: wrap; }
+  .prism { position: relative; width: 540px; height: 540px; background: linear-gradient(#1b201d, #0a0c0b); border-radius: 10px; display: grid; place-items: center; }
+  .prism::before { content: ""; position: absolute; inset: 40px; border: 1px solid rgba(220, 235, 230, 0.16); background: rgba(255, 255, 255, 0.02); }
+  .prism canvas { width: 460px; height: 460px; mix-blend-mode: screen; image-rendering: auto; }
+  .panel { max-width: 560px; }
+  h1 { font-size: 18px; margin: 0 0 6px; color: #eee; }
+  h2 { font-size: 12px; margin: 18px 0 6px; color: #a0e299; letter-spacing: 0.12em; text-transform: uppercase; }
+  button { font: inherit; background: #18201b; color: #dfe5df; border: 1px solid #2c3a31; border-radius: 6px; padding: 5px 9px; margin: 0 6px 6px 0; cursor: pointer; }
+  button[aria-pressed="true"] { border-color: #a0e299; color: #a0e299; }
+  .now { color: #8b918b; margin-top: 10px; }
+  .sheet { padding: 20px; }
+  .sheet .row { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+  .sheet .cell { font-size: 11px; color: #8b918b; text-align: center; }
+  .sheet canvas { width: 120px; height: 120px; display: block; background: #000; border-radius: 4px; }
+</style>
+</head>
+<body>
+<script src="site/sage-site.js"></script>
+<script src="sage-draw.js"></script>
+<script src="sage-acts.js"></script>
+<script>
+  // (the bake still asks for its page under the name the engine was written with)
+  window.__lump = window.__sage;
+  const S = window.__sage;
+  const sheetMode = new URLSearchParams(location.search).has("sheet");
+
+  function frameCanvas(px) { const c = document.createElement("canvas"); c.width = c.height = px; return c; }
+
+  if (sheetMode) {
+    // every loop, transition and act, a drawing every few ticks, to review at a glance
+    document.body.className = "sheet";
+    const add = (title, key, every) => {
+      const h = document.createElement("h2"); h.textContent = title; document.body.append(h);
+      const row = document.createElement("div"); row.className = "row"; document.body.append(row);
+      const n = S.seqLen(key);
+      for (let t = 0; t < n; t += every) {
+        const c = frameCanvas(240), g = c.getContext("2d");
+        const a = S.LOOPS[key] ? S.at(key, t) : S.atSeq(key, t);
+        S.render(g, key, a.id, t);
+        const d = document.createElement("div"); d.className = "cell"; d.append(c, `${t}`); row.append(d);
+      }
+    };
+    for (const m of S.MOMENTS) add(`loop: ${m}`, m, Math.max(6, Math.round(S.seqLen(m) / 10)));
+    for (const k of Object.keys(S.CLIPS)) add(`act: ${k}`, k, Math.max(4, Math.round(S.seqLen(k) / 8)));
+    for (const k of ["idle>working", "idle>alert", "idle>night"]) add(`transition: ${k}`, k, 2);
+    document.title = "sheet ready";
+  } else {
+    // the player: a loop until asked for another mood, then its transitions out and in; an act plays once
+    document.body.innerHTML = `<main><div class="prism"><canvas id="screen" width="240" height="240"></canvas></div>
+      <div class="panel"><h1>Sage on the desk</h1><div>Played as the board plays it: 24 ticks a second, each mood's loop until another is asked for, then its drawn transitions out and in.</div>
+      <h2>Moods</h2><div id="moods"></div><h2>Acts</h2><div id="acts"></div><div class="now" id="now"></div></div></main>`;
+    const g = document.getElementById("screen").getContext("2d");
+    let mood = "idle", target = "idle", queue = [], seq = { key: "idle", kind: "loop" }, tick = 0, last = performance.now(), acc = 0;
+    const moodButtons = S.MOMENTS.map((m) => { const b = document.createElement("button"); b.textContent = m; b.onclick = () => ask(m); document.getElementById("moods").append(b); return b; });
+    for (const k of Object.keys(S.CLIPS)) { const b = document.createElement("button"); b.textContent = k; b.onclick = () => queue.push({ key: k, kind: "act" }); document.getElementById("acts").append(b); }
+    function ask(m) { target = m; }
+    function next() {
+      // where the board goes when a sequence ends: an act waiting, a transition toward the target, or the loop again
+      if (seq.kind === "trans") mood = seq.to;
+      if (queue.length && mood === "idle") return (seq = queue.shift());
+      if (target !== mood) {
+        const direct = `${mood}>${target}`, out = `${mood}>idle`, into = `idle>${target}`;
+        const key = S.TRANS[direct] ? direct : mood !== "idle" ? out : into;
+        const to = key.split(">")[1];
+        return (seq = { key, kind: "trans", to });
+      }
+      if (queue.length) return (seq = { key: `${mood}>idle`, kind: "trans", to: "idle" });
+      seq = { key: mood, kind: "loop" };
+    }
+    function frame(now) {
+      acc += Math.min(0.1, (now - last) / 1000); last = now;
+      let drawn = false;
+      while (acc >= 1 / S.FPS) {
+        acc -= 1 / S.FPS; tick++;
+        if (tick >= S.seqLen(seq.key)) { tick = 0; next(); }
+        drawn = true;
+      }
+      if (drawn) {
+        const a = seq.kind === "loop" ? S.at(seq.key, tick) : S.atSeq(seq.key, tick);
+        S.render(g, mood, a.id, tick);
+        moodButtons.forEach((b, i) => b.setAttribute("aria-pressed", String(S.MOMENTS[i] === target)));
+        document.getElementById("now").textContent = `${seq.kind} ${seq.key}, tick ${tick} of ${S.seqLen(seq.key)}`;
+      }
+      requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+  }
+</script>
+</body>
+</html>
