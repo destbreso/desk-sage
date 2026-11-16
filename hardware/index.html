@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sage's hardware, taken apart</title>
+<meta name="description" content="The Waveshare ESP32-S3-LCD-1.3-C prism display that Sage, the robot of destbreso.com, lives on: modelled from Waveshare's published drawings, taken apart down to its smallest parts and put back together.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0a0c0b; --panel: rgba(16, 19, 18, 0.82); --line: #252b28; --fg: #d8dfd8; --muted: #8c968f; --dim: #5f6862;
+    --accent: #a0e299; --warn: #e2c799;
+    --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html { background: var(--bg); }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 var(--mono); -webkit-text-size-adjust: 100%; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  button { font: inherit; color: inherit; }
+
+  header.top { display: flex; align-items: center; gap: 10px 20px; flex-wrap: wrap; padding: 10px 16px; border-bottom: 1px solid var(--line); min-height: 48px; }
+  header.top .crumb { color: var(--muted); font-size: 13px; }
+  header.top .crumb b { color: var(--fg); font-weight: 600; }
+  header.top nav { margin-left: auto; display: flex; gap: 16px; font-size: 13px; }
+
+  /* the viewer: the model, its callouts, the level's words and the controls over it */
+  #viewer { position: relative; height: calc(100svh - 49px); min-height: 520px; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
+  #stage, #stage canvas { position: absolute; inset: 0; display: block; }
+  #stage canvas { outline: none; }
+  #callouts { position: absolute; inset: 0; pointer-events: none; }
+  #callouts svg { position: absolute; inset: 0; overflow: visible; }
+  #callouts path { fill: none; stroke: rgba(160, 226, 153, 0.42); stroke-width: 1; }
+  #callouts path.hot { stroke: rgba(160, 226, 153, 0.95); }
+  #callouts circle { fill: var(--accent); }
+  .callout { position: absolute; left: 0; top: 0; display: none; flex-direction: column; gap: 1px; will-change: transform; pointer-events: auto; cursor: pointer; padding: 2px 0; }
+  .callout.left { text-align: right; align-items: flex-end; }
+  .callout b, .callout span { text-shadow: 0 1px 2px rgba(0, 0, 0, 0.95), 0 0 10px rgba(0, 0, 0, 0.85); }
+  .callout b { font-size: 11.5px; font-weight: 600; color: #c8f0c3; letter-spacing: 0.02em; white-space: nowrap; }
+  .callout span { font-size: 10.5px; line-height: 1.35; color: rgba(214, 222, 214, 0.72); }
+  .callout.compact span { display: none; }
+  .callout.hot b { color: #fff; }
+  .callout.hot span { color: rgba(232, 240, 232, 0.95); }
+
+  .level { position: absolute; left: 16px; top: 14px; max-width: min(400px, calc(100% - 32px)); pointer-events: none; }
+  .level .kicker { color: var(--dim); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; }
+  .level h1 { margin: 2px 0 4px; font-size: 18px; font-weight: 600; color: var(--fg); }
+  .level p { margin: 0; color: var(--muted); font-size: 12.5px; text-wrap: pretty; }
+
+  #card { position: absolute; right: 16px; top: 14px; width: min(330px, calc(100% - 32px)); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+  #card[hidden] { display: none; }
+  #card h3 { margin: 0 24px 2px 0; font-size: 14px; color: var(--accent); font-weight: 600; }
+  #card .pn { margin: 0 0 6px; color: var(--muted); font-size: 12px; }
+  #card .what { margin: 0 0 8px; font-size: 12.5px; }
+  #card dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 2px 12px; margin: 0; font-size: 12px; }
+  #card dt { color: var(--dim); }
+  #card dd { margin: 0; color: var(--fg); }
+  #card button { position: absolute; right: 8px; top: 6px; background: none; border: 0; color: var(--muted); font-size: 18px; line-height: 1; padding: 4px 6px; cursor: pointer; }
+  #card button:hover { color: var(--fg); }
+
+  #controls { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); width: min(880px, calc(100% - 32px)); background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px 10px; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+  #steps { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+  #steps button { background: none; border: 1px solid transparent; border-radius: 6px; padding: 4px 2px; color: var(--muted); cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 0; min-width: 0; }
+  #steps button i { font-style: normal; font-size: 11px; color: var(--dim); }
+  #steps button span { font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+  #steps button:hover { color: var(--fg); border-color: var(--line); }
+  #steps button[aria-current="step"] { color: var(--accent); border-color: rgba(160, 226, 153, 0.35); }
+  #steps button[aria-current="step"] i { color: var(--accent); }
+  .row { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
+  #scrub { flex: 1; min-width: 60px; accent-color: var(--accent); height: 22px; }
+  .row button { background: #18201b; border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px; cursor: pointer; white-space: nowrap; font-size: 12.5px; }
+  .row button:hover { border-color: var(--accent); color: var(--accent); }
+  .row button.primary { color: var(--accent); border-color: rgba(160, 226, 153, 0.4); }
+  button:focus-visible, #scrub:focus-visible, tr:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  #hint { position: absolute; right: 16px; top: 14px; max-width: 220px; color: var(--dim); font-size: 11px; pointer-events: none; text-align: right; }
+  body.isolated #hint { visibility: hidden; }
+  .phone-hint { display: none; position: absolute; left: 16px; right: 16px; top: 64px; color: var(--dim); font-size: 11px; pointer-events: none; }
+  body.isolated .phone-hint { visibility: hidden; }
+  #fail { position: absolute; inset: 0; display: none; place-items: center; text-align: center; padding: 24px; color: var(--muted); }
+  body.failed #fail { display: grid; }
+  body.capture header.top, body.capture .level, body.capture #controls, body.capture #hint, body.capture main, body.capture footer { display: none !important; }
+  body.capture #viewer { height: 100vh; min-height: 0; }
+  body.capture.with-callouts .level { display: block !important; }
+
+  main { max-width: 1180px; margin: 0 auto; padding: 32px 16px 24px; }
+  main h2 { font-size: 15px; font-weight: 600; margin: 0 0 6px; }
+  main p { color: var(--muted); max-width: 80ch; margin: 0 0 12px; }
+  .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; margin: 14px 0 32px; }
+  table { border-collapse: collapse; width: 100%; font-size: 12.5px; min-width: 860px; }
+  th, td { text-align: left; vertical-align: top; padding: 7px 10px; border-bottom: 1px solid var(--line); }
+  thead th { color: var(--dim); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; position: sticky; top: 0; background: #0e110f; }
+  tbody th { color: var(--fg); font-weight: 600; white-space: nowrap; }
+  tr.group th { color: var(--accent); font-weight: 600; padding-top: 14px; background: #0c0f0d; }
+  tbody tr[data-id] { cursor: pointer; }
+  tbody tr[data-id]:hover { background: #121813; }
+  td { color: var(--muted); }
+  td.pos.warn { color: var(--warn); }
+  ul.sources { margin: 0 0 16px; padding-left: 18px; color: var(--muted); }
+  ul.sources li { margin: 3px 0; }
+  footer { max-width: 1180px; margin: 0 auto; padding: 8px 16px 40px; color: var(--dim); font-size: 12px; }
+
+  @media (max-width: 599px) {
+    #card { top: auto; bottom: calc(14px + 96px); }
+    #phone-hint { display: block !important; }
+  }
+  @media (max-width: 760px) {
+    #steps button span { display: none; }
+    #steps button i { font-size: 13px; color: var(--muted); }
+    .level p { display: none; }
+    .level h1 { font-size: 15px; }
+    #hint { display: none; }
+    .row button { padding: 5px 8px; font-size: 12px; }
+    .row .wide { display: none; }
+  }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<header class="top">
+  <div class="crumb"><a href="../README.md">desk-sage</a> / <b>the hardware, taken apart</b></div>
+  <nav><a href="#parts">Every part</a><a href="#sources">Sources</a></nav>
+</header>
+
+<section id="viewer" aria-label="The device in 3D">
+  <div id="stage"></div>
+  <div id="callouts" aria-hidden="true"><svg></svg></div>
+  <div class="level" id="level" aria-live="polite">
+    <div class="kicker">Level <span id="lvN">0</span> of 6</div>
+    <h1 id="lvName">The whole device</h1>
+    <p id="lvText"></p>
+  </div>
+  <div id="card" hidden>
+    <button type="button" aria-label="Close">&times;</button>
+    <h3></h3>
+    <p class="pn"></p>
+    <p class="what"></p>
+    <dl></dl>
+  </div>
+  <div id="hint">drag to turn, scroll or pinch to zoom, click or tap a part</div>
+  <div id="controls">
+    <div id="steps" role="group" aria-label="Levels"></div>
+    <div class="row">
+      <button type="button" id="together" class="primary" title="From the smallest parts back to the whole device">&#9664; Put it together</button>
+      <input type="range" id="scrub" min="0" max="6" step="0.001" value="0" aria-label="How far it is taken apart">
+      <button type="button" id="apart" class="primary" title="From the whole device to the smallest parts">Take it apart &#9654;</button>
+      <button type="button" id="reset" class="wide">Reset view</button>
+    </div>
+  </div>
+  <div id="phone-hint" class="phone-hint">Tap a part to read what it is. It is easier on a larger screen, with every part named beside it.</div>
+  <div id="fail"><p>This page draws the device with WebGL and loads three.js from a CDN; one of them is not available here.</p></div>
+</section>
+
+<main>
+  <h2 id="parts">Every part</h2>
+  <p>Each part with what it is, where its facts come from, and whether its place on the board is published. Point at a row to light the part; click it to isolate it above.</p>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Part</th><th>Part number or package</th><th>What it does</th><th>Size (mm)</th><th>Source</th><th>Position</th></tr></thead>
+      <tbody id="parts-body"></tbody>
+    </table>
+  </div>
+
+  <h2 id="sources">Sources, and what is not published</h2>
+  <p>Everything here is drawn from numbers, at its real size in millimetres; none of Waveshare's pictures is used. The sizes come from Waveshare's dimension drawings, the parts from its schematic, and their places on the component side are measured on its numbered photo, at the scale of the M2 holes (22.55 mm apart). A package's size is its datasheet's where the package is known, otherwise it is measured on the photo.</p>
+  <ul class="sources" id="source-list"></ul>
+  <p>Also from this repository: the firmware (<code>firmware/platformio.ini</code>, <code>firmware/src/main.cpp</code>) for the SPI clock, the motion sensor's I2C pins and the mirrored drawing, and the printed monitor mount (<code>enclosure/lump_monitor_mount.scad</code>) for the stand measured by hand and its USB at the back.</p>
+  <p>Not published, and marked where it is drawn: where the CH343P, the QMI8658A and the WS2812B sit on the display side (shown together, dashed, as positions not published); the USB-C's place along its edge (inferred from four plated slots of its shell on the component side); the inside of the stand and of the case, and whether the -C's stand holds the board in the -B's case or bare (it is drawn inside the case); what the metal back between the display and the board is; how the standoffs are held in the board; the thicknesses of the display's layers and the driver's size; the cube's coating; the antenna's part number; the crystal's package (measured at about 2.5 by 2.0 mm); and the dozens of small resistors and capacitors, of which only the clearly visible 0603 parts are drawn.</p>
+</main>
+<footer>Sage is the robot of <a href="https://destbreso.com">destbreso.com</a>; its picture on the display is all rights reserved (LICENSE-ART.md). This page's code is MIT, as the rest of desk-sage's code.</footer>
+
+<!-- classic scripts, so the page also opens straight from a file: browsers refuse module files over file:// -->
+<script src="sage-frame.js"></script>
+<script src="parts.js"></script>
+<script src="model.js"></script>
+<script src="app.js"></script>
+<script>
+  (function () {
+    var list = document.getElementById("source-list");
+    window.DeskSageHardware.sources.forEach(function (s) {
+      var li = document.createElement("li"), a = document.createElement("a");
+      a.href = s.url;
+      a.textContent = s.name;
+      a.rel = "noopener";
+      li.appendChild(a);
+      list.appendChild(li);
+    });
+    window.addEventListener("error", function (e) { if (!window.hardware || !window.hardware.ready) document.body.classList.add("failed"); });
+  })();
+</script>
+<script type="module">
+  import * as THREE from "three";
+  import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+  import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
+  import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
+  try {
+    window.DeskSageHardware.start(THREE, { OrbitControls, RoomEnvironment, mergeGeometries });
+  } catch (e) {
+    document.body.classList.add("failed");
+    throw e;
+  }
+</script>
+</body>
+</html>
