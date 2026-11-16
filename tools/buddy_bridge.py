@@ -43,11 +43,21 @@ Extras for debugging:  GET /status   POST /cmd  (body: a raw command such as "s 
                        GET /sound    POST /sound (body: on | off | toggle | play <moment>)
                        (play tap_<gag>_<mood> plays a gag's sound, e.g. play tap_shock_idle)
 Install as a login item with tools/install_bridge.sh.
+
+Without a board: python3 tools/buddy_bridge.py --emulator (or "emulator": true in config.json) drives the
+web emulator instead (emulator/, see its README): the bridge serves the page at /emulator/ and talks to it
+in the board's own line protocol. Everything else behaves as with a board.
 """
-import glob, http.server, json, logging, logging.handlers, os, random, re, subprocess, sys, threading, time, wave
-import serial
+import base64, glob, http.server, json, logging, logging.handlers, os, queue, random, re, subprocess, sys, threading, time, wave
+from urllib.parse import parse_qs, urlparse
+try:
+    import serial
+except ImportError:                     # the emulator link needs only the standard library; a board needs pyserial
+    serial = None
 
 HTTP_PORT = 47823
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+EMULATOR_DIR = os.path.join(ROOT, "emulator")        # the emulator's page, served from a checkout of the repository
 HOME = os.environ.get("DESKBUDDY_HOME") or os.path.expanduser("~/.desk-buddy")   # tests point this elsewhere
 NIGHT_START, NIGHT_END = 0, 8           # local hours: night (deep sleep under the blanket) is midnight to 8am
 NIGHT_SETTLE = 5 * 60                   # after he was last up to something (or you were), regular sleep this long first
@@ -195,6 +205,111 @@ def read_config():
         return {}
 
 
+class Emulator:
+    """The board in a web page (emulator/), a third link beside USB and Wi-Fi. The page is served by the
+    bridge's own HTTP server; it gets the board's line protocol as Server-Sent Events (GET /emulator/events),
+    answers as the board does by POST (/emulator/board), and takes a clip as the board's POST /clip would
+    (post_clip). As on the board's TCP port, the newest connection wins: an older page is told it was replaced."""
+
+    WAIT_FOR_PAGE = 30                 # Device waits this long for a page before trying again
+
+    def __init__(self, art=None):
+        self.art = art                                  # the .bin the page plays (GET /emulator/art.bin)
+        self.cond = threading.Condition()
+        self.page, self.queue, self.inbox, self.pages = 0, None, b"", 0
+        self.clips, self.clip_n = {}, 0                 # clip id -> [Event, the page's answer]
+
+    def attach(self):
+        """A page opened the event stream: it is the board now."""
+        q = queue.Queue()
+        with self.cond:
+            if self.queue:
+                self.queue.put(None)                    # the older page: replaced
+            self.pages += 1
+            self.page, self.queue, self.inbox = self.pages, q, b""
+            self.cond.notify_all()
+            return self.pages, q
+
+    def detach(self, page):
+        with self.cond:
+            if self.page == page:
+                self.page, self.queue = 0, None
+                self.cond.notify_all()
+
+    def heard(self, page, data):
+        """What the page's board said (lines), as if read from the serial port."""
+        with self.cond:
+            if page != self.page:
+                return False
+            self.inbox += data
+            self.cond.notify_all()
+            return True
+
+    def link(self, wait=None):
+        """The serial-port-shaped link to the page now connected, waiting a while for one."""
+        with self.cond:
+            if not self.cond.wait_for(lambda: self.page, self.WAIT_FOR_PAGE if wait is None else wait):
+                raise OSError("no emulator page open")
+            return _EmulatorLink(self, self.page)
+
+    def post_clip(self, name, data, tap):
+        """Hand the page a clip as the board's POST /clip takes one; raises with the board's "err ..." if refused."""
+        with self.cond:
+            if not self.queue:
+                raise OSError("no emulator page open")
+            self.clip_n += 1
+            cid, done = self.clip_n, [threading.Event(), None]
+            self.clips[cid] = done
+            self.queue.put(("clip", json.dumps({"id": cid, "name": name, "tap": bool(tap), "data": base64.b64encode(data).decode()})))
+        try:
+            if not done[0].wait(20):
+                raise TimeoutError("the emulator page did not answer")
+        finally:
+            with self.cond:
+                self.clips.pop(cid, None)
+        if (done[1] or "").strip() != "ok":
+            raise OSError((done[1] or "").strip() or "the emulator page refused the clip")
+
+    def clip_answer(self, page, cid, text):
+        with self.cond:
+            done = self.clips.get(cid) if page == self.page else None
+        if done:
+            done[1] = text
+            done[0].set()
+        return bool(done)
+
+
+class _EmulatorLink:
+    """What Device reads and writes when the board is the emulator's page: shaped like a serial port."""
+
+    def __init__(self, hub, page):
+        self.hub, self.page = hub, page
+
+    def read(self, n):
+        h = self.hub
+        with h.cond:
+            if h.page == self.page and not h.inbox:
+                h.cond.wait(0.3)                        # a serial read's timeout
+            if h.page != self.page:
+                raise OSError("the emulator page closed or was replaced")
+            data, h.inbox = h.inbox[:n], h.inbox[n:]
+            return data
+
+    def write(self, data):
+        with self.hub.cond:
+            if self.hub.page != self.page:
+                raise OSError("the emulator page closed or was replaced")
+            q = self.hub.queue
+        for line in data.decode(errors="replace").splitlines():
+            q.put(("line", line))
+
+    def flush(self):
+        pass
+
+    def close(self):
+        pass
+
+
 class Device:
     """Owns the link to the board: USB serial when it's plugged in, otherwise Wi-Fi (TCP to
     lump.local:4210, set up with tools/wifi_setup.py, which stores "lump_token" in config.json).
@@ -202,9 +317,11 @@ class Device:
     USB as soon as a cable appears."""
 
     USB_CHECK = 5                      # while on Wi-Fi, look for a USB cable this often (seconds)
+    emulator = None                    # an Emulator: the page is the only board
 
-    def __init__(self, on_ready, on_line=None):
+    def __init__(self, on_ready, on_line=None, emulator=None):
         self.ser, self.lock, self.on_ready, self.on_line = None, threading.Lock(), on_ready, on_line
+        self.emulator = emulator
         self.link, self._last_err = None, {}
         threading.Thread(target=self._run, daemon=True).start()
 
@@ -217,6 +334,8 @@ class Device:
         return sorted(glob.glob("/dev/cu.usbmodem*"))
 
     def _targets(self):
+        if self.emulator:
+            return ["emulator://"]
         if os.environ.get("DESKBUDDY_PORT"):
             return [os.environ["DESKBUDDY_PORT"]]
         cfg = read_config()
@@ -232,7 +351,10 @@ class Device:
     def _open(self):
         for p in self._targets():
             try:
-                if p.startswith("socket://"):
+                if p == "emulator://":
+                    s = self.emulator.link()
+                    self.link = "emulator"
+                elif p.startswith("socket://"):
                     import socket as so
                     # look up lump.local as IPv4 only: a general lookup waits 5 s for an IPv6
                     # answer the board never gives
@@ -676,7 +798,7 @@ def usage_colour(frac):
 
 
 class Buddy:
-    def __init__(self, dev=None, focus=None, sounds=None, start=True):
+    def __init__(self, dev=None, focus=None, sounds=None, start=True, emulator=None):
         self.lock = threading.Lock()
         self.sessions = {}            # session_id -> {"state", "t", "cwd"}
         self.last_event = 0.0
@@ -709,7 +831,7 @@ class Buddy:
         self.taps_loaded = 0.0
         self.next_idle = time.time() + random.uniform(*IDLE_EVERY)
         self.load_state()
-        self.dev = dev or Device(self.resend, self.board_line)
+        self.dev = dev or Device(self.resend, self.board_line, emulator)
         if start:
             threading.Thread(target=self._tick, daemon=True).start()
 
@@ -1250,15 +1372,21 @@ class Buddy:
             return True
         cfg = read_config()
         try:
-            import socket, urllib.request
-            ip = socket.getaddrinfo(cfg.get("lump_host") or "lump.local", 80, socket.AF_INET, socket.SOCK_STREAM)[0][4][0]
-            with open(path, "rb") as f:
-                data = f.read()
-            req = urllib.request.Request(f"http://{ip}/clip", data=data, method="POST", headers={
-                "X-Lump-Token": cfg.get("lump_token", ""), "X-Lump-Size": str(len(data)), "X-Lump-Name": name,
-                "X-Lump-Tap": "1" if tap else "0", "Content-Type": "application/octet-stream"})
-            t0 = time.time()
-            urllib.request.urlopen(req, timeout=20).read()
+            if getattr(self.dev, "emulator", None):    # the emulator's page takes it as the board's POST /clip would
+                with open(path, "rb") as f:
+                    data = f.read()
+                t0 = time.time()
+                self.dev.emulator.post_clip(name, data, tap)
+            else:
+                import socket, urllib.request
+                ip = socket.getaddrinfo(cfg.get("lump_host") or "lump.local", 80, socket.AF_INET, socket.SOCK_STREAM)[0][4][0]
+                with open(path, "rb") as f:
+                    data = f.read()
+                req = urllib.request.Request(f"http://{ip}/clip", data=data, method="POST", headers={
+                    "X-Lump-Token": cfg.get("lump_token", ""), "X-Lump-Size": str(len(data)), "X-Lump-Name": name,
+                    "X-Lump-Tap": "1" if tap else "0", "Content-Type": "application/octet-stream"})
+                t0 = time.time()
+                urllib.request.urlopen(req, timeout=20).read()
         except Exception as e:
             detail = e.read().decode(errors="replace").strip() if hasattr(e, "read") else str(e)
             log.info("clip %s not sent: %s", name, detail)
@@ -1616,6 +1744,7 @@ class SlackWatch:
 
 
 buddy = None
+EMULATOR_TYPES = {".html": "text/html; charset=utf-8", ".mjs": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8"}
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -1625,8 +1754,95 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def _reply(self, code, body=b"", ctype="text/plain"):
         self.send_response(code); self.send_header("Content-Type", ctype); self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
 
+    # ---- the emulator's page, its event stream and its answers (only when the bridge drives the emulator) ----
+    def _emulator(self):
+        """The Emulator, None when there is none (the request then goes on as before), or False when this
+        request was refused: only the page the bridge serves may use it, never another site's page."""
+        hub = getattr(getattr(buddy, "dev", None), "emulator", None)
+        if not hub:
+            return None
+        port = self.server.server_address[1]
+        here = {f"127.0.0.1:{port}", f"localhost:{port}"}
+        origin = self.headers.get("Origin")
+        if self.headers.get("Host") not in here or (origin and origin.split("://", 1)[-1] not in here):
+            self._reply(403, b"the emulator answers only its own page")
+            return False
+        return hub
+
+    def _event(self, kind, data, retry=None):
+        msg = (f"retry: {retry}\n" if retry else "") + ("" if kind == "line" else f"event: {kind}\n") + f"data: {data}\n\n"
+        self.wfile.write(msg.encode()); self.wfile.flush()
+
+    def _events(self, hub):
+        """The board's line protocol to the page, one Server-Sent Event per line, until the page goes or is replaced."""
+        page, q = hub.attach()
+        log.info("emulator page %d connected", page)
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream"); self.send_header("Cache-Control", "no-cache"); self.end_headers()
+        try:
+            self._event("hello", json.dumps({"page": page}), retry=1000)
+            while True:
+                try:
+                    item = q.get(timeout=15)
+                except queue.Empty:
+                    self.wfile.write(b": still here\n\n"); self.wfile.flush()     # finds out when the page has gone
+                    continue
+                if item is None:
+                    self._event("replaced", "{}")
+                    break
+                self._event(*item)
+        except OSError:
+            pass
+        finally:
+            hub.detach(page)
+            log.info("emulator page %d gone", page)
+
+    def _emulator_get(self):
+        hub = self._emulator()
+        if hub is None:
+            return False
+        if hub:
+            path = urlparse(self.path).path
+            name = path[len("/emulator/"):] or "index.html"
+            if path == "/emulator":
+                self.send_response(301); self.send_header("Location", "/emulator/"); self.end_headers()
+            elif path == "/emulator/events":
+                self._events(hub)
+            elif path == "/emulator/art.bin":
+                try:
+                    with open(hub.art, "rb") as f:
+                        self._reply(200, f.read(), "application/octet-stream")
+                except (OSError, TypeError):
+                    self._reply(404, b"no art: start the bridge with --art")
+            elif re.fullmatch(r"[a-z0-9_-]+\.(html|mjs|css)", name) and os.path.isfile(os.path.join(EMULATOR_DIR, name)):
+                with open(os.path.join(EMULATOR_DIR, name), "rb") as f:
+                    self._reply(200, f.read(), EMULATOR_TYPES[os.path.splitext(name)[1]])
+            else:
+                self._reply(404)
+        return True
+
+    def _emulator_post(self, body):
+        hub = self._emulator()
+        if hub is None:
+            return False
+        if hub:
+            u = urlparse(self.path); q = parse_qs(u.query)
+            try:
+                page, cid = int(q.get("page", ["0"])[0]), int(q.get("id", ["0"])[0])
+            except ValueError:
+                page = cid = 0
+            if u.path == "/emulator/board":           # what the board said: as if read from its serial port
+                self._reply(204 if hub.heard(page, body) else 409)
+            elif u.path == "/emulator/clip":          # the board's answer to a clip
+                self._reply(204 if hub.clip_answer(page, cid, body.decode(errors="replace")) else 409)
+            else:
+                self._reply(404)
+        return True
+
     def do_POST(self):
         body = self.rfile.read(int(self.headers.get("Content-Length", 0) or 0))
+        if self.path.startswith("/emulator/") and self._emulator_post(body):
+            return
         if self.path == "/hook":
             self._reply(204)                      # answer first so the hook never waits on us
             try: buddy.hook(json.loads(body or b"{}"))
@@ -1663,6 +1879,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._reply(404)
 
     def do_GET(self):
+        if self.path.startswith("/emulator") and self._emulator_get():
+            return
         if self.path == "/status":
             self._reply(200, json.dumps(buddy.status(), indent=2).encode(), "application/json")
         elif self.path == "/sound":
@@ -1674,9 +1892,23 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    buddy = Buddy()
+    import argparse
+    ap = argparse.ArgumentParser(description="Desk Buddy bridge: Claude Code hooks to the board (see the top of this file).")
+    ap.add_argument("--emulator", action="store_true", help='drive the web emulator (emulator/) instead of a board; also "emulator": true in config.json')
+    ap.add_argument("--art", help="the .bin the emulator plays (default: firmware/data/lump.bin if there is one, else the test card)")
+    ap.add_argument("--port", type=int, default=HTTP_PORT, help="the HTTP port (default %(default)s, where the hooks post)")
+    args = ap.parse_args()
+    hub = None
+    if args.emulator or read_config().get("emulator"):
+        hub = Emulator(args.art or next((p for p in (os.path.join(ROOT, "firmware", "data", "lump.bin"), os.path.join(EMULATOR_DIR, "testcard", "testcard.bin"))
+                                         if os.path.exists(p)), None))
+    elif serial is None:
+        sys.exit("pyserial is missing (tools/install_bridge.sh installs it); without a board, run with --emulator")
+    buddy = Buddy(emulator=hub)
     buddy.app = AppPages(buddy)
     buddy.calendar = Calendar()
     buddy.slack = SlackWatch(buddy)
-    log.info("desk-buddy bridge listening on 127.0.0.1:%d", HTTP_PORT)
-    http.server.ThreadingHTTPServer(("127.0.0.1", HTTP_PORT), Handler).serve_forever()
+    log.info("desk-buddy bridge listening on 127.0.0.1:%d", args.port)
+    if hub:
+        log.info("emulator: http://127.0.0.1:%d/emulator/ plays %s", args.port, hub.art)
+    http.server.ThreadingHTTPServer(("127.0.0.1", args.port), Handler).serve_forever()
