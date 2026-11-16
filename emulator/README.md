@@ -30,6 +30,7 @@ The page also works without the bridge, from any static server (`python3 -m http
 |---|---|
 | `board.mjs` | `firmware/src/main.cpp`: `parseArt`, the player (`startSeq`, `nextHop`, `settle`, `setTarget`, `playEvent`, `pickTap`, `pickTapClip`), `runDemo`, `autoBehaviour`, `backlight`, `imuTask`'s tap logic, `runOffline` and the unplugged mark, `overlayVisible` and `drawOverlay`, `handleLine` and `reply`, the clip store (`addClip`, `dropOldestClip`, `dropClip`, `onClipDone`) and `loop`. Each method names the function it ports. |
 | `vec.mjs` | `firmware/src/vec.h`, the board's instruction renderer, line for line, into an RGB565 buffer. |
+| `glyphs.mjs` | `firmware/src/glyphs.h`, the board's glyph frames (version 6): the atlas's checks and the blend of each glyph's coverage, line for line. |
 | `lgfx.mjs` | The few LovyanGFX fills the corner marks use. |
 | `app.mjs`, `index.html` | The page: the prism, input, readouts, and the link to the bridge. |
 
@@ -50,10 +51,12 @@ The board's loop runs every 2 ms (its `delay(2)`) on the wall clock, so frames a
 cd emulator && node --test                       # the board on a fake clock, and the renderer against vec.h
 python3 -m unittest discover -s tests            # the bridge, its emulator link included (from the repository root)
 node emulator/checks/vec_fidelity.mjs [file]     # every instruction frame through vec.mjs and through tools/vec_check.cpp
+node emulator/checks/glyph_fidelity.mjs file [refs]   # every glyph frame through glyphs.mjs and tools/glyph_check.cpp, and against Chrome's pictures (the bake's --refs)
 node emulator/checks/e2e.mjs --sheet out.png     # the real bridge and the page in headless Chromium, with a contact sheet
 ```
 
 - `tests/board.test.mjs`: parsing (and that every truncated file fails cleanly), the state graph's routes, the timeouts (alert to waiting at 45 s, working to longhaul at 10 minutes, offline at a minute, offline fidgets), taps and gags, the clip store and its eviction, colour, corner marks, backlight and the replies' format. Nothing to install.
+- `tests/glyphs.test.mjs`: version 6 (its atlas and glyph frames parsed, every truncation and damage refused cleanly), known pixels, clipping, drawing order, a clip's own atlas, and the emulator against `glyphs.h`.
 - `vec_fidelity.mjs` builds `tools/vec_check.cpp` with clang++ (as the bake does) and hands it the emulator's picture of each frame as the reference, with the bake's tolerance (mean 2% of full scale, 300 pixels far off).
 - `e2e.mjs` starts the bridge in emulator mode on a free port with a temporary home, opens the page in Chromium (`$CHROME`, else Playwright's cached headless shell) over the DevTools protocol, posts hooks with the same curl command the installed hooks use, clicks the prism, sends a clip, and removes its temporary folders.
 
