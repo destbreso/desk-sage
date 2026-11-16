@@ -36,4 +36,5 @@ What is not checked yet: the author has no board on the desk, so these steps are
 
 ## Where the facts come from
 
+- What is on the board, part by part, and how it all goes together: the interactive page in [`hardware/`](../hardware/index.html) (open `hardware/index.html` from a clone: it takes the device apart, level by level, down to its smallest parts).
 - The board, its variants and their prices: [Waveshare's product page](https://www.waveshare.com/esp32-s3-lcd-1.3.htm), its [wiki](https://www.waveshare.com/wiki/ESP32-S3-LCD-1.3) and its [schematic](https://files.waveshare.com/wiki/ESP32-S3-LCD-1.3/ESP32S3_1.3inch.pdf).
