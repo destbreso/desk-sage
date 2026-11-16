@@ -72,6 +72,15 @@
   act("tap_hello", 36, (t) => ({ mood: "happy", lift: round(Math.max(0, Math.sin((Math.PI * t) / 18)) * 4, 0.5), roll: t < 18 ? 0.06 : -0.04, antenna: 1 }));
   act("tap_dizzy", 72, (t) => ({ eyes: "dizzy", roll: round(Math.sin(t / 4) * 0.12, 0.01), antenna: t % 6 < 3 ? 1 : 0.3 }));
   act("done_hearts", 72, (t) => ({ eyes: "hearts", hearts: round((t % 48) / 48, 1 / 24), antenna: 1 }));
+  // ── camera acts: the camera moves, Sage stays itself ──
+  // the camera goes all the way round it while it keeps its eyes on you
+  act("cam_orbit", 144, (t) => ({ orbit: round((2 * Math.PI * t) / 144, 0.02), headYaw: round(-Math.sin((2 * Math.PI * t) / 144) * 0.6, 0.02), tilt: 0.25, antenna: 0.85 }), 1);
+  // a crane shot: from low on the desk, looking up at it, to high above, looking down; it looks up to follow
+  act("cam_crane", 120, (t) => { const u = Math.min(1, t / 108), e = u * u * (3 - 2 * u); return { tilt: round(-0.5 + 1.3 * e, 0.02), look: [0, round(0.4 - 0.9 * e, 0.05)], zoom: round(1.05 - 0.15 * e, 0.01), mood: t > 108 ? "happy" : "calm" }; }, 1);
+  // from straight above as it turns on the spot, the floor's glow under it
+  act("cam_top", 96, (t) => ({ tilt: 1.3, zoom: 0.9, yaw: round((2 * Math.PI * t) / 96, 0.02), wheel: round(t * 0.2, 0.1) }), 1);
+  // close and from below as it wakes: eyes open, a look down at you, pleased
+  act("cam_wake", 96, (t) => ({ z: 1, tilt: -0.45, shut: t < 24 ? 0.9 : t < 36 ? round(0.9 - (t - 24) / 12 * 0.9, 0.1) : 0, look: [0, t < 48 ? 0 : 0.4], mood: t > 60 ? "happy" : "calm", antenna: t < 24 ? 0.2 : 1 }), 1);
   // a turn on the spot, all the way round and back to you, pleased with itself
   act("fidget_turn", 96, (t) => ({ yaw: round(((2 * Math.PI) * (t < 84 ? t / 84 : 1)) % (2 * Math.PI), 0.02), mood: t > 84 ? "happy" : "calm", wheel: round(t * 0.2, 0.1), antenna: t > 84 ? 1 : 0.7 }), 1);
   // a look over one shoulder, then the other, its body still
