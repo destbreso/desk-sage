@@ -107,16 +107,10 @@
         voxel(S, cam, [th.x + c * size, lift, (th.z ?? 0) - r * size], w * Math.min(1, s), h * s, tone === "amber" ? AMBER : tone === "lit" ? LIT : GREEN, th.alpha ?? 1);
       }
     },
-    /** the board under them: its grid on the desk, faint, from cell (c0, r0) to (c1, r1), the cells' corner at (x, z) */
+    /** the board under them, from cell (c0, r0) to (c1, r1), the cells' corner at (x, z): a hologram's grid on the
+     *  desk (design/sage-holo.js), and when `projected` Sage throws it there from its lens */
     board(S, th, cam) {
-      const { size = 7, c0, r0, c1, r1 } = th, X = (c) => th.x + (c - 0.5) * size, Z = (r) => (th.z ?? 0) - (r - 0.5) * size;
-      S.custom({ w: [th.x, 0, th.z ?? 0], bias: -9e5, draw(g) {
-        g.strokeStyle = "#a0e299"; g.globalAlpha = th.alpha ?? 0.16; g.lineWidth = 1;
-        g.beginPath();
-        for (let c = c0; c <= c1 + 1; c++) { const a = cam.at([X(c), 0, Z(r0)]), b = cam.at([X(c), 0, Z(r1 + 1)]); g.moveTo(a[0], a[1]); g.lineTo(b[0], b[1]); }
-        for (let r = r0; r <= r1 + 1; r++) { const a = cam.at([X(c0), 0, Z(r)]), b = cam.at([X(c1 + 1), 0, Z(r)]); g.moveTo(a[0], a[1]); g.lineTo(b[0], b[1]); }
-        g.stroke(); g.globalAlpha = 1;
-      } });
+      S.custom({ w: [th.x, 0, th.z ?? 0], bias: -9e5, draw(g) { SageHolo.board(g, cam, th, th.projected ? th.eye : null, th.t || 0); } });
     },
     /** the room's phone, lying on the desk, its screen lit with a message, buzzing with `buzz` */
     phone(S, th) {
@@ -133,7 +127,7 @@
   };
 
   /** the things of a pose, into the scene as shapes */
-  function add(S, things, cam, t) { for (const th of things || []) DRAW[th.kind](S, { ...th, t }, cam); }
+  function add(S, things, cam, t, eye) { for (const th of things || []) DRAW[th.kind](S, { ...th, t, eye }, cam); }
 
   window.SageThings = { add, life: { step, run, between } };
 })();

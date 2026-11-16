@@ -24,7 +24,7 @@
     // (a camera a little above it by default, so the desk and what lies on it read)
     tilt: 0.12, orbit: 0, zoom: 1, camX: 0, camY: 0, things: null, bar: 0, footSide: 1, squash: 0, antennaBend: 0, bow: 0,
     mood: "calm", look: [0, 0], shut: 0, squeezed: false, eyes: null, antenna: 0.7,
-    book: 0, page: 0, light: 0, charger: 0, signal: 0, rise: 0, burst: 0, hearts: 0, amber: false, holo: null,
+    book: 0, page: 0, light: 0, charger: 0, signal: 0, rise: 0, burst: 0, hearts: 0, amber: false, holo: null, projecting: 0, flare: 0,
   };
 
   /**
@@ -264,6 +264,8 @@
     // the head, on the top of its neck: turned, rolled and bowed there, nodding down by `nod`
     const head = hip.then([0, 2 + 32 * sv + 8 - p.nod, 0], mul(rotY(p.headYaw), mul(rotZ(-p.roll), rotX(p.bow))));
     const hpt = (x, y, z) => head.at([x, y, z]);
+    // its lens, on the top of its head near the front right corner, and how lit it is
+    const eye = hpt(24 * hz, 62 * hv, 18 * hz), lit = Math.max(p.projecting || 0, p.holo ? Math.min(1, (p.holo.open ?? 1) / 0.3) : 0);
     S.box({ f: head, c: [0, 31 * hv, 0], W: 76 * hz, H: 62 * hv, D: 58 * hz, r: 19, tones: SHELL, spec: 0.6,
       faces: {
         front(gg, w, h) {
@@ -282,7 +284,11 @@
           gg.globalAlpha = 0.3; gg.strokeStyle = T.seam; gg.lineWidth = 0.6; rr(gg, w / 2 - 30, h / 2 - 20, 60, 40, 10); gg.stroke();
           for (let i = 0; i < 4; i++) { gg.beginPath(); gg.moveTo(w / 2 - 14, h / 2 + 4 + i * 4); gg.lineTo(w / 2 + 14, h / 2 + 4 + i * 4); gg.stroke(); }
         },
-        top(gg, w, h) { gg.globalAlpha = 0.25; gg.strokeStyle = T.seam; gg.lineWidth = 0.6; rr(gg, w * 0.12, h * 0.15, w * 0.76, h * 0.7, 10); gg.stroke(); },
+        top(gg, w, h) {
+          gg.globalAlpha = 0.25; gg.strokeStyle = T.seam; gg.lineWidth = 0.6; rr(gg, w * 0.12, h * 0.15, w * 0.76, h * 0.7, 10); gg.stroke(); gg.globalAlpha = 1;
+          // its projector: a lens near the front right corner, where every hologram it throws comes from
+          if (window.SageHolo) SageHolo.lens(gg, [w / 2 + 24, h / 2 + 18, 0, 1], lit);
+        },
       } });
     // its own light, from the visor down onto the book
     // (seen only from the front: from behind, its body hides where it falls)
@@ -307,11 +313,20 @@
     if (p.rise) mark(hpt(22, 62 * hv + 18, -10), (gg, x, y, kk) => rise(gg, x, y, kk, p.rise));
     if (p.burst) mark(hpt(0, 70, 20), (gg, x, y, kk) => burst(gg, x, y, kk, p.burst));
     if (p.hearts) mark(hpt(22, 62 * hv + 18, -10), (gg, x, y, kk) => floatingHearts(gg, x, y, kk, p.hearts));
-    // what it projects: a hologram from its visor (design/sage-holo.js)
-    // (from the edge of its visor on the side of the picture, so the beam is not lost against its face)
-    if (p.holo && window.SageHolo) SageHolo.add(S, cam, p.holo, [hpt(30, 52 * hv, 29), hpt(30, 12 * hv, 29)], t);
+    // what it projects, from its lens (design/sage-holo.js), and the lens's light seen from wherever the camera is
+    if (p.holo && window.SageHolo) SageHolo.add(S, cam, p.holo, eye, t);
+    if (lit > 0) S.custom({ w: eye, bias: 400, draw(gg) { const e = cam.at(eye); for (const [r, a] of [[7, 0.14], [3.5, 0.35], [1.4, 0.9]]) { gg.globalAlpha = a * lit; gg.fillStyle = r < 2 ? "#e8ffe4" : T.green; gg.beginPath(); gg.arc(e[0], e[1], r * e[3], 0, Math.PI * 2); gg.fill(); } gg.globalAlpha = 1; } });
+    // its lens flaring until its light fills the screen, as a hologram is about to take it
+    // (the room going dark round it, rings of its light going out from the lens, and its core blazing)
+    if (p.flare > 0) S.custom({ w: eye, bias: 1e6, draw(gg) {
+      const e = cam.at(eye), f = p.flare;
+      gg.globalAlpha = 0.75 * f; gg.fillStyle = "#000000"; gg.fillRect(0, 0, 240, 240);
+      for (let i = 0; i < 3; i++) { const u = Math.min(1, f * 1.3 - i * 0.18); if (u <= 0) continue; const r = 6 + u * 190; for (const [lw, a] of [[9, 0.12], [3.5, 0.3], [1.2, 0.9]]) { gg.globalAlpha = a * (1 - u * 0.7); gg.strokeStyle = lw < 2 ? "#e8ffe4" : T.green; gg.lineWidth = lw; gg.beginPath(); gg.arc(e[0], e[1], r, 0, Math.PI * 2); gg.stroke(); } }
+      for (const [r, a] of [[12, 0.25], [6, 0.5], [2.5, 1]]) { gg.globalAlpha = a; gg.fillStyle = r < 3 ? "#e8ffe4" : T.green; gg.beginPath(); gg.arc(e[0], e[1], r * (0.6 + f), 0, Math.PI * 2); gg.fill(); }
+      gg.globalAlpha = 1;
+    } });
 
-    if (p.things && window.SageThings) SageThings.add(S, p.things, cam, t);
+    if (p.things && window.SageThings) SageThings.add(S, p.things, cam, t, eye);
     if (extra) extra(S, { root, head, cam, p, t });
     S.draw(g);
   }

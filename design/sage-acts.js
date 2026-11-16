@@ -209,7 +209,7 @@
       ...DESKCAM, headYaw: q(0.55 * look * into, 0.01), bow: q(0.12 * look * into + 0.16 * lean, 0.01), look: [q(0.35 * look), q(0.45 * look)],
       lean: q(0.07 * lean, 0.01), crouch: q(1.5 * lean, 0.25), squeezed: t >= 56 && t < 60, mood: worried ? "worried" : "calm", amber: worried,
       eyes: t >= 76 && t < 98 ? "ash" : null, signal: t >= 112 && t < 140 ? q(((t - 112) % 24) / 24, 1 / 12) : 0, antenna: worried ? (t % 12 < 6 ? 1 : 0.4) : 0.7,
-      camX: 26, zoom: 0.92, things: [{ kind: "board", x: 44, z: 16, size: 13, c0: -1, r0: -1, c1: 4, r1: 3, alpha: q(0.18 * ease(seg(t, 0, 12)) * (1 - ease(seg(t, 136, 152))), 0.02) }, ...(cells.length ? [{ kind: "cells", x: 44, z: 16, size: 13, cells }] : [])],
+      camX: 26, zoom: 0.92, projecting: q(ease(seg(t, 0, 12)) * (1 - ease(seg(t, 136, 152))), 0.05), things: [{ kind: "board", projected: true, x: 44, z: 16, size: 13, c0: -1, r0: -1, c1: 4, r1: 3, alpha: q(0.18 * ease(seg(t, 0, 12)) * (1 - ease(seg(t, 136, 152))), 0.02) }, ...(cells.length ? [{ kind: "cells", x: 44, z: 16, size: 13, cells }] : [])],
     };
   }));
 
@@ -225,7 +225,7 @@
       ...DESKCAM, headYaw: q(0.45 * into + 0.4 * away, 0.01), bow: q(0.2 * into - 0.3 * away, 0.01), look: [q(0.3 + 0.3 * away), q(0.4 - 0.9 * away)],
       eyes: t >= 10 && t < 46 ? "cells" : null, bar: q(seg(t, 10, 40), 0.1), mood: t >= 120 ? "happy" : "calm",
       ...(t >= 44 && t < 70 ? hop(t, 54, 8, 4) : {}), rise: t >= 124 ? q(((t - 124) % 48) / 48, 1 / 24) : 0, antenna: t >= 50 ? 1 : 0.7,
-      camX: q(22 + 14 * away, 0.25), zoom: q(0.94 - 0.08 * away, 0.01), things: [{ kind: "board", x: 34, z: 30, size: 11, c0: -1, r0: -1, c1: 4, r1: 4, alpha: q(0.18 * ease(seg(t, 0, 12)) * (1 - ease(seg(t, 150, 168))), 0.02) }, ...(cells.length ? [{ kind: "cells", x: 34, z: 30, size: 11, cells }] : [])],
+      camX: q(22 + 14 * away, 0.25), zoom: q(0.94 - 0.08 * away, 0.01), projecting: q(ease(seg(t, 0, 12)) * (1 - ease(seg(t, 150, 168))), 0.05), things: [{ kind: "board", projected: true, x: 34, z: 30, size: 11, c0: -1, r0: -1, c1: 4, r1: 4, alpha: q(0.18 * ease(seg(t, 0, 12)) * (1 - ease(seg(t, 150, 168))), 0.02) }, ...(cells.length ? [{ kind: "cells", x: 34, z: 30, size: 11, cells }] : [])],
     };
   }));
 
@@ -243,7 +243,7 @@
       ...DESKCAM, headYaw: q(0.6 * into * (1 - ease(seg(t, 126, 138))), 0.01), bow: q(0.22 * into * (1 - ease(seg(t, 126, 138))), 0.01), look: [q(0.4 * into), q(0.5 * into)],
       squeezed: boil, crouch: boil ? 1 : 0, eyes: done && t >= 124 && t < 146 ? "glider" : null, mood: done ? "happy" : "calm",
       rise: done && t >= 128 ? q(((t - 128) % 48) / 48, 1 / 24) : 0, antenna: done ? 1 : 0.7,
-      camX: 40, zoom: 0.84, things: [{ kind: "board", x: 66, z: 18, size: 9, c0: -4, r0: -2, c1: 7, r1: 7, alpha: q(0.16 * ease(seg(t, 0, 12)) * (1 - ease(seg(t, 152, 168))), 0.02) }, ...(cells.length ? [{ kind: "cells", x: 66, z: 18, size: 9, cells }] : [])],
+      camX: 40, zoom: 0.84, projecting: q(ease(seg(t, 0, 12)) * (1 - ease(seg(t, 152, 168))), 0.05), things: [{ kind: "board", projected: true, x: 66, z: 18, size: 9, c0: -4, r0: -2, c1: 7, r1: 7, alpha: q(0.16 * ease(seg(t, 0, 12)) * (1 - ease(seg(t, 152, 168))), 0.02) }, ...(cells.length ? [{ kind: "cells", x: 66, z: 18, size: 9, cells }] : [])],
     };
   }));
 
@@ -301,39 +301,58 @@
       ...(t >= 150 ? hop(t, 156, 9, 4) : {}), crouch: reading ? 2 * ease(seg(t, 0, 16)) : 0 };
   });
 
-  // ── what it projects: holograms from its visor, as its mind shows on the website ──
-  const HOLO = { at: [84, 104, 12], w: 64, h: 46, yaw: 0.35 };
-  /** a hologram act: it turns a little to the side, throws the picture into the air, and switches it off; `show(t)` is
-   *  what the picture shows, `poseAt(t)` what Sage does meanwhile */
-  function holoAct(name, ticks, poseAt, show) {
+  // ── what it projects, from the lens on its head: holograms made only of light, as its mind shows on the website ──
+  // (on the desk, standing on a ring of light it throws there, or in the air beside it; the camera set for each)
+  const PLACE = {
+    desk: { holo: { place: "desk", at: [76, 0, 34], w: 56, h: 50 }, pose: { headYaw: 0.45, bow: 0.16, look: [0.5, 0.4], camX: 30, zoom: 0.86, tilt: 0.3 } },
+    air: { holo: { place: "air", at: [86, 116, 4], w: 60, h: 44 }, pose: { headYaw: 0.4, look: [0.5, -0.1], camX: 34, zoom: 0.84 } },
+  };
+  /** a hologram act: it turns to where it will throw it, switches it on, and off again; `show(t)` is what it shows,
+   *  `poseAt(t)` what Sage does meanwhile */
+  function holoAct(name, ticks, where, poseAt, show) {
+    const P = PLACE[where];
     act(name, ticks, settled(ticks, (t) => {
-      const open = q(Math.min(seg(t, 12, 26), 1 - seg(t, ticks - 36, ticks - 24)), 0.04), turn = ease(seg(t, 4, 14)) * (1 - ease(seg(t, ticks - 24, ticks - 14)));
-      return { headYaw: q(0.4 * turn, 0.01), look: [q(0.5 * turn), 0], camX: 34, zoom: 0.84, ...poseAt(t), holo: open > 0 ? { ...HOLO, open, ...show(t) } : null };
+      const open = q(Math.min(seg(t, 12, 28), 1 - seg(t, ticks - 38, ticks - 24)), 0.04), turn = ease(seg(t, 4, 14)) * (1 - ease(seg(t, ticks - 24, ticks - 14)));
+      const pose = Object.fromEntries(Object.entries(P.pose).map(([k, v]) => [k, Array.isArray(v) ? v.map((x) => q(x * turn, 0.01)) : k === "camX" || k === "zoom" || k === "tilt" ? v : q(v * turn, 0.01)]));
+      return { ...pose, ...poseAt(t), holo: open > 0 ? { ...P.holo, open, ...show(t) } : null };
     }));
   }
   // a test run, a cell a test as each finishes; two come up amber, and it turns to tell you
-  holoAct("holo_tests", 180, (t) => ({ mood: t >= 72 ? "worried" : "calm", amber: t >= 72, squeezed: t >= 72 && t < 76, antenna: t >= 72 ? (t % 12 < 6 ? 1 : 0.4) : 0.7,
-    ...(t >= 112 && t < 146 ? { headYaw: 0, look: [0, 0], signal: q(((t - 112) % 24) / 24, 1 / 12) } : {}) }),
+  holoAct("holo_tests", 180, "desk", (t) => ({ mood: t >= 72 ? "worried" : "calm", amber: t >= 72, squeezed: t >= 72 && t < 76, antenna: t >= 72 ? (t % 12 < 6 ? 1 : 0.4) : 0.7,
+    ...(t >= 112 && t < 146 ? { headYaw: 0, bow: 0, look: [0, 0], signal: q(((t - 112) % 24) / 24, 1 / 12) } : {}) }),
     (t) => ({ kind: "tests", count: 12, done: Math.max(0, Math.min(12, Math.floor((t - 28) / 5))), fails: [7, 10], glitch: t >= 72 && t < 110 ? 0.4 : 0 }));
   // a build's progress round a ring, a stall halfway, and a hop when it reaches a hundred
   const buildP = (t) => (t < 30 ? 0 : t < 64 ? 0.55 * seg(t, 30, 64) : t < 80 ? 0.55 : 0.55 + 0.45 * ease(seg(t, 80, 112)));
-  holoAct("holo_build", 168, (t) => ({ mood: t >= 112 ? "happy" : "calm", ...(t >= 112 && t < 136 ? hop(t, 118, 10, 5) : {}), burst: t >= 122 && t < 138 ? q(seg(t, 122, 138), 0.05) : 0, antenna: t >= 112 ? 1 : 0.7,
-    bow: t >= 64 && t < 80 ? q(0.1 * Math.sin(Math.PI * seg(t, 64, 80)), 0.01) : 0 }),
+  holoAct("holo_build", 168, "air", (t) => ({ mood: t >= 112 ? "happy" : "calm", ...(t >= 112 && t < 136 ? hop(t, 118, 10, 5) : {}), burst: t >= 122 && t < 138 ? q(seg(t, 122, 138), 0.05) : 0, antenna: t >= 112 ? 1 : 0.7 }),
     (t) => ({ kind: "ring", progress: q(buildP(t), 0.01) }));
   // late at night: it shows you the time, yawns, and switches it off
-  holoAct("holo_clock", 180, (t) => ({ crouch: 2, mood: "sleepy", shut: t >= 80 && t < 104 ? q(0.7 * Math.sin(Math.PI * seg(t, 80, 104)), 0.1) : 0.2,
+  holoAct("holo_clock", 180, "air", (t) => ({ crouch: 2, mood: "sleepy", shut: t >= 80 && t < 104 ? q(0.7 * Math.sin(Math.PI * seg(t, 80, 104)), 0.1) : 0.2,
     squash: t >= 80 && t < 104 ? q(0.25 * Math.sin(Math.PI * seg(t, 80, 104)), 0.02) : 0, antenna: 0.4 }),
     () => ({ kind: "clock", time: "02:14" }));
   // its battery, the author's Claude usage, below a quarter: it droops and sighs
-  holoAct("holo_battery", 164, (t) => ({ crouch: q(3 * ease(seg(t, 20, 40)), 0.25), bow: q(0.16 * ease(seg(t, 20, 40)), 0.01), mood: "sleepy", antenna: q(0.35 + 0.1 * Math.sin(t / 6), 0.05),
+  holoAct("holo_battery", 164, "air", (t) => ({ crouch: q(3 * ease(seg(t, 20, 40)), 0.25), mood: "sleepy", antenna: q(0.35 + 0.1 * Math.sin(t / 6), 0.05),
     squash: t >= 76 && t < 96 ? q(-0.22 * Math.sin(Math.PI * seg(t, 76, 96)), 0.02) : 0 }),
     () => ({ kind: "battery", level: 0.23 }));
   // a board of the Game of Life in the air, a glider going round it
-  holoAct("holo_life", 176, (t) => ({ mood: "content", bow: q(0.04 * Math.sin(t / 5), 0.01), antenna: 0.85 }),
-    (t) => ({ kind: "life", gen: Math.max(0, Math.floor((t - 26) / 4)) }));
-  // itself, as a wireframe turning in the air; it tilts its head at it, pleased
-  holoAct("holo_self", 176, (t) => ({ roll: q(t >= 50 && t < 120 ? 0.1 * ease(seg(t, 50, 62)) * (1 - ease(seg(t, 108, 120))) : 0, 0.01), mood: t >= 120 ? "happy" : "calm", antenna: 0.9 }),
+  holoAct("holo_life", 176, "air", (t) => ({ mood: "content", antenna: 0.85 }), (t) => ({ kind: "life", gen: Math.max(0, Math.floor((t - 26) / 4)) }));
+  // itself, as a wireframe turning on the desk; it tilts its head at it, pleased
+  holoAct("holo_self", 176, "desk", (t) => ({ roll: q(t >= 50 && t < 120 ? 0.1 * ease(seg(t, 50, 62)) * (1 - ease(seg(t, 108, 120))) : 0, 0.01), mood: t >= 120 ? "happy" : "calm", antenna: 0.9 }),
     (t) => ({ kind: "self", turn: q(Math.max(0, t - 20) / 22, 0.01) }));
+  /**
+   * A hologram that takes the whole screen: it bows its lens to you, the lens flares until its light fills the room,
+   * the picture opens over all of the screen and stays until it is done, closes to a line and a point, and Sage is back.
+   */
+  function screenAct(name, ticks, show, poseAt = () => ({})) {
+    const on = 30, off = ticks - 44;
+    act(name, ticks, settled(ticks, (t) => {
+      if (t >= on && t < off) return { ...poseAt(t), bow: 0.4, screen: { open: q(Math.min(seg(t, on, on + 16), 1 - seg(t, off - 16, off)), 0.04), ...show(t) } };
+      const toward = t < on ? ease(seg(t, 2, 16)) : 1 - ease(seg(t, off + 10, off + 24)), flare = t < on ? seg(t, 16, on) : 1 - seg(t, off, off + 12);
+      return { ...poseAt(t), bow: q(0.4 * toward, 0.01), look: [0, q(0.6 * toward)], projecting: q(toward, 0.05), flare: q(flare, 0.04), shut: blink(t, off + 16) };
+    }));
+  }
+  screenAct("holo_screen_tests", 176, (t) => ({ kind: "tests", count: 12, done: Math.max(0, Math.min(12, Math.floor((t - 46) / 4))), fails: [7, 10], glitch: t >= 74 && t < 100 ? 0.35 : 0 }),
+    (t) => ({ mood: t >= 132 ? "worried" : "calm", amber: t >= 132 }));
+  screenAct("holo_screen_self", 176, (t) => ({ kind: "self", turn: q(Math.max(0, t - 30) / 20, 0.01) }), (t) => ({ mood: t >= 132 ? "happy" : "calm" }));
 
   // ── made of the rain ──
   /**
@@ -414,7 +433,8 @@
     // (a drawing made of the rain's glyphs goes through design/sage-glyphs.js, the rest is drawn as instructions)
     // (and what moves with time moves on even ticks, so a drawing held two ticks is the same frame twice)
     const even = tick - (tick % 2);
-    if (D[id].glyph && window.SageGlyphs) SageGlyphs.draw(ctx, D[id], even);
+    if (D[id].screen && window.SageHolo) SageHolo.screen(ctx, D[id].screen, even);
+    else if (D[id].glyph && window.SageGlyphs) SageGlyphs.draw(ctx, D[id], even);
     else SageDraw.drawSage(ctx, D[id], even);
   }
   const meta = () => ({
