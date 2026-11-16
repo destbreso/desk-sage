@@ -72,6 +72,52 @@
   act("tap_hello", 36, (t) => ({ mood: "happy", lift: round(Math.max(0, Math.sin((Math.PI * t) / 18)) * 4, 0.5), roll: t < 18 ? 0.06 : -0.04, antenna: 1 }));
   act("tap_dizzy", 72, (t) => ({ eyes: "dizzy", roll: round(Math.sin(t / 4) * 0.12, 0.01), antenna: t % 6 < 3 ? 1 : 0.3 }));
   act("done_hearts", 72, (t) => ({ eyes: "hearts", hearts: round((t % 48) / 48, 1 / 24), antenna: 1 }));
+  // ── what the author is doing, with the things that come for it ──
+  const clamp01 = (v) => Math.max(0, Math.min(1, v));
+  const seg = (t, a, b) => clamp01((t - a) / (b - a));
+  const back = (u) => { const c = 1.7; return 1 + (c + 1) * Math.pow(u - 1, 3) + c * Math.pow(u - 1, 2); };
+  const q = (v, step = 0.05) => round(v, step);
+
+  // tests fail: a cross on its visor, a bug runs in, it turns, rolls over, winds up and stomps it, then a tick
+  act("work_tests_fail", 132, (t) => {
+    const turnOut = ease(seg(t, 30, 44)), roll = ease(seg(t, 44, 72)), wind = seg(t, 72, 84), stomp = seg(t, 84, 88), turnBack = ease(seg(t, 92, 110));
+    const x = q(22 * roll, 0.25), squashed = t >= 88;
+    return {
+      eyes: t >= 4 && t < 18 ? "cross" : t >= 112 ? "check" : null, mood: t < 92 ? "worried" : "happy",
+      headYaw: q(t < 30 ? 0.6 * ease(seg(t, 10, 22)) : 0.6 * (1 - turnOut)), yaw: q(Math.PI / 2 * (turnOut - turnBack), 0.02),
+      x, wheel: q(x / 5.5, 0.1), footSide: -1, foot: q(t < 84 ? 8 * wind : t < 88 ? 8 * (1 - stomp) : 0, 0.5), crouch: q(t < 84 ? 3 * wind : t < 92 ? 3 * (1 - seg(t, 88, 92)) : 0, 0.5),
+      lift: t >= 112 ? q(Math.max(0, Math.sin(Math.PI * seg(t, 112, 126))) * 4, 0.5) : 0, antenna: t >= 112 ? 1 : 0.6,
+      camX: 14, zoom: 0.92,
+      things: [{ kind: "bug", x: squashed ? 38 : q(90 - 50 * seg(t, 0, 30) - 4 * seg(t, 30, 84), 0.5), z: 20, dir: -1, step: q(t * 0.9, 0.3), squashed }],
+    };
+  }, 1);
+
+  // a deploy: a rocket pops up beside it, its visor fills like a progress bar, the rocket lifts off, hearts
+  act("work_deploy", 144, (t) => {
+    const pop = seg(t, 0, 14), launch = seg(t, 72, 120), up = 240 * launch * launch;
+    const smoke = [];
+    for (let i = 0; i < 8; i++) { const born = 60 + i * 6; if (t < born) continue; const age = (t - born) / 40; if (age > 1) continue; smoke.push([q((i % 2 ? 1 : -1) * (3 + 10 * age), 0.5), q(2 + 14 * age, 0.5), q(3 + 6 * age, 0.25), q(0.55 * (1 - age), 0.05)]); }
+    return {
+      headYaw: q(0.65 * ease(seg(t, 6, 18)), 0.02), look: [0, q(-0.9 * ease(seg(t, 76, 104)))], eyes: t < 64 && t >= 16 ? "bar" : t >= 104 ? "hearts" : null, bar: q(seg(t, 16, 60), 0.04),
+      mood: "calm", antenna: t >= 104 ? 1 : 0.7, camX: 12, zoom: 0.92, lift: t >= 112 ? q(Math.max(0, Math.sin(Math.PI * ((t - 112) % 16) / 16)) * 3, 0.5) : 0,
+      things: [{ kind: "rocket", x: q(48 + (t >= 60 && t < 76 ? Math.sin(t * 2.3) * 0.7 : 0), 0.1), z: 6, scale: q(pop < 1 ? back(pop) : 1, 0.02), up: q(up, 0.5), flame: q(t >= 60 ? (t < 72 ? 0.5 : 1) : 0, 0.5), smoke }],
+    };
+  }, 1);
+
+  // a build: crates drop one by one onto a pile, each landing a squeeze of its eyes, then a tick and a proud nod
+  act("work_build", 156, (t) => {
+    const drops = [[8, 0], [40, 22], [72, 44]];
+    const crates = drops.map(([at, rest], i) => {
+      if (t < at) return null;
+      const fall = seg(t, at, at + 14), land = t - (at + 14);
+      const y = fall < 1 ? rest + 150 * (1 - fall * fall) : rest + (land < 8 ? Math.max(0, Math.sin(Math.PI * land / 8)) * 3 : 0);
+      return { kind: "crate", x: 48 + (i === 1 ? -1 : i === 2 ? 1.5 : 0), y: q(y, 0.5), z: 12, size: 22, yaw: i === 2 ? 0.12 : 0, squash: q(fall >= 1 && land < 4 ? 0.22 * (1 - land / 4) : 0, 0.02) };
+    }).filter(Boolean);
+    const flinch = drops.some(([at]) => t >= at + 14 && t < at + 20);
+    return { headYaw: q(0.55 * ease(seg(t, 0, 10)) * (1 - ease(seg(t, 104, 116))), 0.02), look: [0, -0.2], squeezed: flinch, eyes: t >= 116 ? "check" : null,
+      nod: t >= 124 ? q(3 * Math.sin(Math.PI * seg(t, 124, 140)), 0.5) : 0, antenna: t >= 116 ? 1 : 0.7, camX: 14, zoom: 0.88, things: crates };
+  }, 1);
+
   // ── camera acts: the camera moves, Sage stays itself ──
   // the camera goes all the way round it while it keeps its eyes on you
   act("cam_orbit", 144, (t) => ({ orbit: round((2 * Math.PI * t) / 144, 0.02), headYaw: round(-Math.sin((2 * Math.PI * t) / 144) * 0.6, 0.02), tilt: 0.25, antenna: 0.85 }), 1);

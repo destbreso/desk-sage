@@ -21,7 +21,7 @@
   /** A pose: everything a drawing of Sage can set, in millimetres and radians. */
   const POSE = {
     z: 0, x: 0, depth: 0, lift: 0, crouch: 0, lean: 0, roll: 0, nod: 0, foot: 0, yaw: 0, headYaw: 0, wheel: 0,
-    tilt: 0, orbit: 0, zoom: 1, camX: 0, camY: 0,
+    tilt: 0, orbit: 0, zoom: 1, camX: 0, camY: 0, things: null, bar: 0, footSide: 1,
     mood: "calm", look: [0, 0], shut: 0, squeezed: false, eyes: null, antenna: 0.7,
     book: 0, page: 0, light: 0, letter: null, zz: 0, sweat: 0, alert: 0, dnd: 0, hearts: 0, charger: 0, spark: 0,
   };
@@ -103,7 +103,7 @@
     g.bezierCurveTo(cx + s * 0.7, cy - s * 1.25, cx + s * 1.5, cy - s * 0.1, cx, cy + s * 0.9);
     g.closePath(); g.fill();
   }
-  function special(g, x, y, w, h, eyes, t) {
+  function special(g, x, y, w, h, eyes, t, bar = 0) {
     g.fillStyle = "#000000"; rr(g, x, y, w, h, h * 0.24); g.fill();
     const cy = y + h / 2, ex = [x + w * 0.3, x + w * 0.7], s = h * 0.17;
     g.fillStyle = g.strokeStyle = eyes === "hearts" ? T.heart : T.green;
@@ -114,7 +114,13 @@
       // the website's prompt, >_, its cursor blinking
       g.beginPath(); g.moveTo(x + w * 0.27, cy - h * 0.2); g.lineTo(x + w * 0.45, cy); g.lineTo(x + w * 0.27, cy + h * 0.2); g.stroke();
       if (Math.floor(t / 12) % 2 === 0) { g.beginPath(); g.moveTo(x + w * 0.52, cy + h * 0.2); g.lineTo(x + w * 0.74, cy + h * 0.2); g.stroke(); }
-    } else if (eyes === "x") for (const cx of ex) { g.beginPath(); g.moveTo(cx - s * 0.7, cy - s * 0.7); g.lineTo(cx + s * 0.7, cy + s * 0.7); g.moveTo(cx + s * 0.7, cy - s * 0.7); g.lineTo(cx - s * 0.7, cy + s * 0.7); g.stroke(); }
+    } else if (eyes === "bar") {
+      // a progress bar across its visor, filling to `bar`
+      g.globalAlpha = 0.35; rr(g, x + w * 0.16, cy - h * 0.09, w * 0.68, h * 0.18, h * 0.09); g.fill(); g.globalAlpha = 1;
+      if (bar > 0) { rr(g, x + w * 0.16, cy - h * 0.09, Math.max(h * 0.18, w * 0.68 * Math.min(1, bar)), h * 0.18, h * 0.09); g.fill(); }
+    } else if (eyes === "check") { g.lineWidth = Math.max(2, h * 0.1); g.beginPath(); g.moveTo(x + w * 0.32, cy); g.lineTo(x + w * 0.45, cy + h * 0.16); g.lineTo(x + w * 0.7, cy - h * 0.2); g.stroke(); }
+    else if (eyes === "cross") { g.strokeStyle = "#ff6b6b"; g.lineWidth = Math.max(2, h * 0.1); g.beginPath(); g.moveTo(x + w * 0.38, cy - h * 0.18); g.lineTo(x + w * 0.62, cy + h * 0.18); g.moveTo(x + w * 0.62, cy - h * 0.18); g.lineTo(x + w * 0.38, cy + h * 0.18); g.stroke(); }
+    else if (eyes === "x") for (const cx of ex) { g.beginPath(); g.moveTo(cx - s * 0.7, cy - s * 0.7); g.lineTo(cx + s * 0.7, cy + s * 0.7); g.moveTo(cx + s * 0.7, cy - s * 0.7); g.lineTo(cx - s * 0.7, cy + s * 0.7); g.stroke(); }
   }
 
   // Props, in millimetres from the floor.
@@ -211,7 +217,7 @@
     // feet, wheels, legs and hips
     const legTop = 26 - p.crouch;
     for (const sd of [-1, 1]) {
-      const up = sd > 0 ? p.foot : 0;
+      const up = sd === p.footSide ? p.foot : 0;
       S.box({ c: W(sd * 17, 6.5 + up, 3), yaw: p.yaw, W: 26, H: 13, D: 38, r: 6.2, tones: RUBBER, spec: 0.18, rimA: 0.2,
         front(gg, f) { gg.strokeStyle = T.tread; gg.lineWidth = Math.max(1, 0.8 * k); for (let i = 0; i < 5; i++) { const tx = f.x + (i + 0.6) * (f.w / 5.2); gg.beginPath(); gg.moveTo(tx, f.y + f.h * 0.88); gg.lineTo(tx + 1.5 * k, f.y + f.h * 0.72); gg.stroke(); } },
         bottom(gg, f) { gg.strokeStyle = T.tread; gg.lineWidth = Math.max(1, 0.8 * k); for (let i = 0; i < 6; i++) { const ty = f.y + (i + 0.5) * (f.h / 6); gg.beginPath(); gg.moveTo(f.x + f.w * 0.18, ty); gg.lineTo(f.x + f.w * 0.82, ty); gg.stroke(); } } });
@@ -255,7 +261,7 @@
         Sage3D.shaded(gg, cxh - 33.6 * fc * k, cyh - 28.6 * cam.cp * k, 67.2 * fc * k, 57.2 * cam.cp * k, 14.5 * k, GRAPH, { spec: 0, rimA: 0.2 });
         const fw = 64.5 * fc * k, fh = 54.5 * cam.cp * k, fx0 = cxh - fw / 2, fy0 = cyh - fh / 2 + 1 * k;
         const look = [Math.max(-1, Math.min(1, p.look[0] + hs * 0.6)), Math.max(-1, Math.min(1, p.look[1] - cam.sp * 0.5))];
-        if (p.eyes) glow(gg, fx0 + fw / 2, fy0 + fh / 2, () => special(gg, fx0, fy0, fw, fh, p.eyes, t));
+        if (p.eyes) glow(gg, fx0 + fw / 2, fy0 + fh / 2, () => special(gg, fx0, fy0, fw, fh, p.eyes, t, p.bar));
         else glow(gg, fx0 + fw / 2, fy0 + fh / 2, () => drawSageFace(gg, fx0, fy0, fw, fh, p.mood, { radius: Math.min(fh, fw) * 0.24, scale: (64.5 * k) / 170, look, shut: p.shut, squeezed: p.squeezed }));
         gg.save(); rr(gg, fx0, fy0, fw, fh, Math.min(fh, fw) * 0.24); gg.clip();
         gg.globalAlpha = 0.13; gg.fillStyle = "#ffffff"; gg.beginPath(); gg.moveTo(fx0, fy0 + fh * 0.32); gg.quadraticCurveTo(fx0 + fw * 0.35, fy0 + fh * 0.05, fx0 + fw * 0.62, fy0); gg.lineTo(fx0, fy0); gg.closePath(); gg.fill();
@@ -288,6 +294,7 @@
     if (p.hearts) air(0, neck + 74, (gg, x, y) => floatingHearts(gg, x, y, k, p.hearts));
     if (p.spark) air(30, neck + 70, (gg, x, y) => spark(gg, x, y, k, p.spark));
 
+    if (p.things && window.SageThings) SageThings.add(S, p.things, k, t);
     if (extra) extra(S, { W, at, cam, k, p, t });
     S.draw(g);
   }
