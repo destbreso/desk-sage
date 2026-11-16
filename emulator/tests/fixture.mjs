@@ -1,8 +1,9 @@
 // Small .bin files written by hand for the tests, in the layout tools/export_frames.py documents
 // (version 5 unless asked): moods [[name, base]], sequences [[kind, from, to, name, [frame per tick]]],
-// frames as {rle: [[count, rgb565], ...]} or {ops: [byte, ...]}.
+// frames as {rle: [[count, rgb565], ...]}, {ops: [byte, ...]} or, from version 6, {glyphs: [bg, [[x, y, atlas index, rgb565], ...]]};
+// a version 6 file carries its atlas as [{left, top, w, h, cov: [0..15 a pixel, row by row]}].
 
-export function encode({ version = 5, fps = 24, moods, seqs, frames }) {
+export function encode({ version = 5, fps = 24, moods, seqs, frames, atlas = [] }) {
   const out = [];
   const u8 = v => out.push(v & 255), u16 = v => out.push(v & 255, (v >> 8) & 255);
   const u32 = v => out.push(v & 255, (v >>> 8) & 255, (v >>> 16) & 255, (v >>> 24) & 255);
@@ -12,13 +13,27 @@ export function encode({ version = 5, fps = 24, moods, seqs, frames }) {
   for (const [name, base] of moods) { u8(base); str(name); }
   if (version >= 5) u16(seqs.length); else u8(seqs.length);
   for (const [kind, from, to, name, ticks] of seqs) { u8(kind); u8(from); u8(to); str(name); u16(ticks.length); ticks.forEach(u16); }
+  if (version >= 6) {
+    const rec = [], at = [];
+    for (const g of atlas) {
+      at.push(rec.length); rec.push(g.left & 255, g.top & 255, g.w, g.h);
+      for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x += 2) rec.push((g.cov[y * g.w + x] << 4) | (x + 1 < g.w ? g.cov[y * g.w + x + 1] : 0));
+    }
+    u16(atlas.length); u32(rec.length); at.forEach(u32); out.push(...rec);
+  }
   const blobs = frames.map(f => {
-    if (f.ops) return { vec: true, bytes: [f.ops.length & 255, f.ops.length >> 8, ...f.ops] };
-    return { vec: false, bytes: f.rle.flatMap(([n, v]) => [n, v >> 8, v & 255]) };
+    const sized = body => ({ body: [body.length & 255, body.length >> 8, ...body] });
+    if (f.ops) return { kind: 2, ...sized(f.ops) };
+    if (f.glyphs) {
+      const [bg, list] = f.glyphs, body = [bg & 255, bg >> 8];
+      for (const [x, y, i, c] of list) body.push(x & 255, (x >> 8) & 255, y & 255, (y >> 8) & 255, i, c & 255, c >> 8);
+      return { kind: 3, ...sized(body) };
+    }
+    return { kind: 0, body: f.rle.flatMap(([n, v]) => [n, v >> 8, v & 255]) };
   });
   let off = 0;
-  for (const b of blobs) { u32((off | (b.vec ? 0x80000000 : 0)) >>> 0); off += b.bytes.length; }
-  for (const b of blobs) out.push(...b.bytes);
+  for (const b of blobs) { u32((off | (b.kind << 30)) >>> 0); off += b.body.length; }
+  for (const b of blobs) out.push(...b.body);
   return new Uint8Array(out);
 }
 

@@ -57,7 +57,7 @@ describe('parsing', () => {
   test('wrong magic or version is refused; version 4 has a one-byte sequence count', () => {
     const bad = small(); bad[0] = 0x58;
     assert.equal(new Board().parseArt(bad, bad.length, 0), false);
-    for (const v of [2, 6]) { const x = small(); x[4] = v; assert.equal(new Board().parseArt(x, x.length, 0), false, `version ${v}`); }
+    for (const v of [2, 7]) { const x = small(); x[4] = v; assert.equal(new Board().parseArt(x, x.length, 0), false, `version ${v}`); }
     const v4 = encode({ version: 4, moods: [['idle', 0]], seqs: [[0, 0, 0, 'idle', [0]]], frames: [solid(0)] });
     assert.equal(new Board().parseArt(v4, v4.length, 0), true);
   });

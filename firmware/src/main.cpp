@@ -1,6 +1,7 @@
 // Desk Buddy — Lump frame player.
 // Plays the hand-drawn frames baked from design/lump.html (tools/export_frames.py -> data/lump.bin).
-// Most frames are stored as drawing instructions and drawn here by vec.h; a few are stored as pixels.
+// Most frames are stored as drawing instructions and drawn here by vec.h, frames made of text as glyphs
+// drawn by glyphs.h, and the rest as pixels.
 // The frames live in their own flash partition ("lump"), not in the program, so the art and the
 // program can each be updated over Wi-Fi on their own (tools/ota.py; see "Updates" below).
 // The previous Vec firmware lives in archive/vec_main.cpp.
@@ -77,6 +78,7 @@
 #include "mbedtls/sha256.h"
 #define VEC_SWAPPED                    // the sprite buffer holds byte-swapped RGB565
 #include "vec.h"
+#include "glyphs.h"
 
 constexpr int PIN_SCLK = 40, PIN_MOSI = 41, PIN_DC = 38, PIN_CS = 39, PIN_RST = 42, PIN_BL = 20;
 constexpr bool PRISM_MIRROR = true;  // rotations 4–7 are mirrored for the prism
@@ -126,6 +128,7 @@ constexpr int MAX_SEQ = 750 + MAX_SRC - 1;                     // 750 sequences 
 enum Kind : uint8_t { LOOP = 0, TRANS = 1, EVENT = 2 };
 struct Src {                                    // where a sequence's frames live
   const uint8_t* offsets = nullptr; const uint8_t* data = nullptr; const uint8_t* end = nullptr;
+  glyphs::Atlas atlas;                           // the bitmaps its glyph frames draw with (version 6)
   uint8_t* own = nullptr; String name;           // a clip's RAM buffer and name
   uint32_t used = 0;                             // when it was last played (or arrived)
   bool tap = false;                              // a tap reaction: kept, and in the running when the glass is tapped
@@ -154,8 +157,8 @@ static bool parseArt(const uint8_t* buf, size_t size, int si) {
   bool clip = si > 0;
   if (memcmp(p, "LUMP", 4) != 0) return false;
   p += 4;
-  uint16_t version = rd16(p); p += 2;            // 3: every frame is pixels. 4: a frame may be instructions. 5: up to 65535 sequences
-  if (version < 3 || version > 5) return false;
+  uint16_t version = rd16(p); p += 2;            // 3: every frame is pixels. 4: a frame may be instructions. 5: up to 65535 sequences. 6: glyph frames and their atlas
+  if (version < 3 || version > 6) return false;
   uint16_t nFrames = rd16(p); p += 2;
   uint8_t nMoods = *p++, fps = *p++, moodOf[MAX_MOODS];
   if (nMoods > MAX_MOODS) return false;
@@ -184,13 +187,17 @@ static bool parseArt(const uint8_t* buf, size_t size, int si) {
     else if (A.kind[i] == TRANS) A.transOf[A.from[i]][A.to[i]] = i;
   }
   if (!clip) for (int m = 0; m < nMoods; m++) if (A.loopOf[m] < 0) return false;
+  glyphs::Atlas atlas;
+  if (version >= 6 && !glyphs::parseAtlas(p, end, atlas)) return false;
   if (!room(size_t(nFrames) * 4)) return false;
   Src& S = A.srcs[si];
-  S.offsets = p; p += nFrames * 4; S.data = p; S.end = end;
+  S.offsets = p; p += nFrames * 4; S.data = p; S.end = end; S.atlas = atlas;
   size_t have = end - S.data;
-  for (int f = 0; f < nFrames; f++) {
-    uint32_t o = rd32(S.offsets + 4 * f); size_t at = o & 0x7FFFFFFF;
-    if (at >= have || ((o >> 31) && (at + 2 > have || at + 2 + rd16(S.data + at) > have))) return false;
+  for (int f = 0; f < nFrames; f++) {             // the top two bits: 00 pixels, 10 instructions, 11 glyphs (version 6)
+    uint32_t o = rd32(S.offsets + 4 * f), kind = o >> 30; size_t at = o & 0x3FFFFFFF;
+    if (kind == 1 || (kind == 3 && version < 6)) return false;
+    if (at >= have || (kind >= 2 && (at + 2 > have || at + 2 + rd16(S.data + at) > have))) return false;
+    if (kind == 3 && rd16(S.data + at) < 2) return false;
   }
   A.nSeqs = first + n;
   return true;
@@ -226,14 +233,16 @@ static void recolour8(uint8_t* c) {
   c[0] = min(255, int(alpha * tintR + beta * 255)); c[1] = min(255, int(alpha * tintG + beta * 241)); c[2] = min(255, int(alpha * tintB + beta * 220));
 }
 
-// A frame is either drawing instructions (vec.h draws them), or pixels: RLE runs of
+// A frame is drawing instructions (vec.h draws them), glyphs (glyphs.h), or pixels: RLE runs of
 // [count][rgb565 big-endian]. The sprite buffer wants byte-swapped RGB565, which is big-endian byte
-// order, so each run's two bytes go in as stored (then recoloured).
+// order, so each run's two bytes go in as stored (then recoloured). Glyphs keep their colours: the
+// body-colour swap was made for Lump's magenta (docs/ROADMAP.md, Phase 6).
 static void drawFrame(uint8_t src, uint16_t idx) {
   const Src& S = A.srcs[src];
-  uint32_t o = rd32(S.offsets + 4 * idx);
-  const uint8_t* p = S.data + (o & 0x7FFFFFFF);
-  if (o >> 31) { cv.play(p + 2, rd16(p)); return; }
+  uint32_t o = rd32(S.offsets + 4 * idx), kind = o >> 30;
+  const uint8_t* p = S.data + (o & 0x3FFFFFFF);
+  if (kind == 3) { glyphs::draw((uint16_t*)fb.getBuffer(), S.atlas, p + 2, rd16(p)); return; }
+  if (kind == 2) { cv.play(p + 2, rd16(p)); return; }
   uint16_t* out = (uint16_t*)fb.getBuffer();
   int i = 0;
   uint16_t lastIn = 0xFFFF, lastOut = 0;

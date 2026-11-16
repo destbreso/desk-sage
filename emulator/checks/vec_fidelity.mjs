@@ -24,14 +24,19 @@ export function buildVecCheck() {
 }
 
 // Where the frames are, in a .bin or a clip (the layout in tools/export_frames.py): only the frame
-// table matters here, so a clip, which the board reads only beside its art, is read the same way.
-function frameTable(buf) {
-  const rd16 = p => buf[p] | (buf[p + 1] << 8), nFrames = rd16(6), wide = rd16(4) >= 5 ? 2 : 1;
+// table and the glyph atlas matter here, so a clip, which the board reads only beside its art, is read the same way.
+// kind(f) is the frame's kind as the top two bits of its offset say (0 pixels, 2 instructions, 3 glyphs), at(f) where it starts.
+export function frameTable(buf) {
+  const rd16 = p => buf[p] | (buf[p + 1] << 8), rd32 = p => (buf[p] | (buf[p + 1] << 8) | (buf[p + 2] << 16) | (buf[p + 3] << 24)) >>> 0;
+  const version = rd16(4), nFrames = rd16(6), wide = version >= 5 ? 2 : 1;
   let p = 10;
   for (let m = buf[8]; m > 0; m--) p += 2 + buf[p + 1];
   let n = wide === 2 ? rd16(p) : buf[p];
   for (p += wide; n > 0; n--) { p += 4 + buf[p + 3]; p += 2 + 2 * rd16(p); }
-  return { nFrames, offsets: p, data: p + 4 * nFrames };
+  const atlas = p;
+  if (version >= 6) p += 6 + 4 * rd16(p) + rd32(p + 2);
+  const offsets = p, data = p + 4 * nFrames;
+  return { version, nFrames, atlas, offsets, data, kind: f => rd32(offsets + 4 * f) >>> 30, at: f => data + (rd32(offsets + 4 * f) & 0x3FFFFFFF) };
 }
 
 export function compare(file, exe = buildVecCheck()) {
@@ -39,9 +44,8 @@ export function compare(file, exe = buildVecCheck()) {
   if (String.fromCharCode(...buf.subarray(0, 4)) !== 'LUMP') throw new Error(`${file} is not a .bin or a clip`);
   const S = frameTable(buf), cv = new Canvas(), rgba = new Uint8Array(W * H * 4), feed = [], js = [];
   for (let f = 0; f < S.nFrames; f++) {
-    const o = (buf[S.offsets + 4 * f] | (buf[S.offsets + 4 * f + 1] << 8) | (buf[S.offsets + 4 * f + 2] << 16) | (buf[S.offsets + 4 * f + 3] << 24)) >>> 0;
-    if (!(o >>> 31)) continue;                                 // pixels: nothing to render
-    const at = S.data + (o & 0x7FFFFFFF), len = buf[at] | (buf[at + 1] << 8), ops = buf.subarray(at + 2, at + 2 + len);
+    if (S.kind(f) !== 2) continue;                             // pixels or glyphs: not vec's (glyph_fidelity.mjs)
+    const at = S.at(f), len = buf[at] | (buf[at + 1] << 8), ops = buf.subarray(at + 2, at + 2 + len);
     cv.play(buf, at + 2, len);                                 // the frame buffer carries over, as on the board and in vec_check
     for (let i = 0; i < W * H; i++) {                          // RGB565 widened the way vec_check widens its own
       const v = cv.fb[i];

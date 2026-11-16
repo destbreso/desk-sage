@@ -17,22 +17,36 @@
     python3 tools/export_frames.py --bake --page emulator/testcard/index.html --out emulator/testcard/testcard.bin
                                                           # bake another page with the same interface (served
                                                           # from its own folder)
+    python3 tools/export_frames.py --bake --page design/sage.html --out firmware/data/sage.bin --refs refs.bin
+                                                          # also save the browser's picture of every glyph frame,
+                                                          # for emulator/checks/glyph_fidelity.mjs
 
 The page posts its mood/sequence list to /meta, then every 24 fps frame of every sequence: the
-picture (raw RGBA) and the canvas calls that drew it. Identical frames are stored once. Each frame
-is kept as drawing instructions (about a kilobyte, drawn on the board by firmware/src/vec.h) when
-that renderer reproduces the browser's picture closely enough, and as pixels otherwise.
+picture (raw RGBA) and the canvas calls that drew it, then the glyph atlas: every text it drew,
+rendered alone in the state it was drawn in. Identical frames are stored once. Each frame is kept
+as drawing instructions (about a kilobyte, drawn on the board by firmware/src/vec.h) when that
+renderer reproduces the browser's picture closely enough; a frame that is only a background fill
+and text (fillText with fillStyle and globalAlpha) as a glyph frame (about 2 KB, drawn by
+firmware/src/glyphs.h) when that reproduces it; and as pixels otherwise.
 
-lump.bin layout (little-endian), version 5:
-  "LUMP" u16 version=5  u16 nFrames  u8 nMoods  u8 fps
+lump.bin layout (little-endian), version 6 (the board also reads 3 to 5, which have no atlas):
+  "LUMP" u16 version=6  u16 nFrames  u8 nMoods  u8 fps
   per mood:      u8 base mood index, u8 nameLen, name
-  u16 nSeqs (at most 750 in lump.bin: the board keeps room for that many)
+  u16 nSeqs (at most 750 in lump.bin: the board keeps room for that many; a u8 before version 5)
   per sequence:  u8 kind (0 loop, 1 transition, 2 event), u8 from, u8 to,
                  u8 nameLen, name, u16 length, u16 frame index per tick
-  u32 offset[nFrames]  (from start of frame data; top bit set = an instruction frame)
+  glyph atlas:   u16 nGlyphs (at most 256), u32 size (bytes of the records), u32 at[nGlyphs] (where each
+                 record starts, from the first), then the records: s8 left, s8 top (the bitmap's corner
+                 from the pixel the glyph is drawn at), u8 width, u8 height, then height rows of
+                 ceil(width / 2) bytes, 4 bits of coverage a pixel (0..15), the left one in the high nibble
+  u32 offset[nFrames]  (from start of frame data; the top two bits are the kind: 00 pixels,
+                 10 instructions, 11 glyphs)
   frame data: a pixel frame is runs of [u8 count (1..255)][u16 rgb565 big-endian] until 57600 px;
-              an instruction frame is u16 length, then the instructions (see encode())
-A clip is the same layout holding only its own sequences and frames.
+              an instruction frame is u16 length, then the instructions (see encode());
+              a glyph frame is u16 length, then u16 background rgb565, then per glyph in drawing order
+              s16 x, s16 y (the whole pixel the browser drew its anchor at), u8 atlas index, u16 rgb565
+              (its colour with its alpha folded in against black)
+A clip is the same layout holding only its own sequences, frames and glyphs.
 """
 import argparse, glob, hashlib, http.server, json, math, os, re, shutil, socket, struct, subprocess, sys, tempfile, threading, zlib
 from urllib.parse import urlparse, parse_qs
@@ -54,9 +68,11 @@ units = {}    # frame id -> (rgba bytes, canvas calls)
 where = {}    # (sequence key, tick) -> frame id
 named = {}    # (sequence key, tick) -> the named drawing shown there
 meta = {}
+texts = {}    # (font, textAlign, textBaseline) -> {"yUp": fraction or None, "glyphs": {text: (left, top, w, h, alphas)}}
 done = threading.Event()
 result = {}
 out_path = OUT
+refs_path = None   # where to save the browser's picture of each glyph frame (--refs)
 clip_name = None   # the clip being baked, if it is one
 
 EXPORT_JS = r"""
@@ -69,11 +85,15 @@ EXPORT_JS = r"""
   const c = cv.getContext('2d', { willReadFrequently: true });
   L.setLine('glow'); L.setTint(TINT);
   for (const [name, def] of Object.entries(cfg.define || {})) L.CLIPS[name] = def;
-  // draw through a recorder, so each frame is also kept as the canvas calls that made it
+  // draw through a recorder, so each frame is also kept as the canvas calls that made it, and every text
+  // drawn is noted by the state it was drawn in (the glyph atlas is rendered from them at the end)
   let ops = [];
+  const texts = new Map();
   const rec = new Proxy(c, {
     get(t, p) { const v = t[p]; if (typeof v !== 'function') return v;
-      return (...a) => { ops.push([p, ...a.map(x => (typeof x === 'number' || typeof x === 'string' || typeof x === 'boolean' || Array.isArray(x)) ? x : null)]); return v.apply(t, a); }; },
+      return (...a) => {
+        if (p === 'fillText') { const k = JSON.stringify([t.font, t.textAlign, t.textBaseline]); if (!texts.has(k)) texts.set(k, new Set()); texts.get(k).add(String(a[0])); }
+        ops.push([p, ...a.map(x => (typeof x === 'number' || typeof x === 'string' || typeof x === 'boolean' || Array.isArray(x)) ? x : null)]); return v.apply(t, a); }; },
     set(t, p, v) { t[p] = v; ops.push(['=' + p, (p === 'fillStyle' || p === 'strokeStyle') ? t[p] : v]); return true; }
   });
   const meta = L.meta();
@@ -86,7 +106,8 @@ EXPORT_JS = r"""
       const a = s.kind === 0 ? L.at(s.key, t) : L.atSeq(s.key, t);
       // the page doesn't reset the canvas between frames, so a frame starts with whatever the last one left set
       ops = [['=lineCap', c.lineCap], ['=lineJoin', c.lineJoin], ['=lineWidth', c.lineWidth], ['=fillStyle', c.fillStyle], ['=strokeStyle', c.strokeStyle],
-             ['=globalAlpha', c.globalAlpha], ['setLineDash', c.getLineDash()], ['=lineDashOffset', c.lineDashOffset]];
+             ['=globalAlpha', c.globalAlpha], ['setLineDash', c.getLineDash()], ['=lineDashOffset', c.lineDashOffset],
+             ['=font', c.font], ['=textAlign', c.textAlign], ['=textBaseline', c.textBaseline]];
       L.render(rec, s.kind === 0 ? s.key : L.fxFor(a.id), a.id, t, { dim: false });
       const calls = JSON.stringify(ops), q = `seq=${encodeURIComponent(s.key)}&tick=${t}`, was = seen.get(calls);
       const q2 = q + '&d=' + encodeURIComponent(a.id);
@@ -95,6 +116,40 @@ EXPORT_JS = r"""
       n++;
     }
   }
+  // The glyph atlas: each text drawn alone in white on a clear canvas of the same kind, at a whole pixel, so its
+  // alpha is the browser's own coverage. Per text state, also the fraction of a pixel past which a y moves the
+  // glyph one pixel down (the browser snaps text to whole pixels vertically; null if it does not).
+  const T = 256, O = 128, tc = document.createElement('canvas'); tc.width = tc.height = T;
+  const g = tc.getContext('2d', { willReadFrequently: true });
+  const alone = (st, text, x, y) => {
+    g.clearRect(0, 0, T, T); g.font = st[0]; g.textAlign = st[1]; g.textBaseline = st[2]; g.fillStyle = '#ffffff'; g.globalAlpha = 1;
+    g.fillText(text, x, y);
+    const d = g.getImageData(0, 0, T, T).data, a = new Uint8Array(T * T);
+    for (let i = 0; i < T * T; i++) a[i] = d[i * 4 + 3];
+    return a;
+  };
+  const moved = (a, b, dy) => { for (let y = 0; y < T; y++) for (let x = 0; x < T; x++) { const Y = y - dy; if ((Y >= 0 && Y < T ? a[Y * T + x] : 0) !== b[y * T + x]) return false; } return true; };
+  const atlas = [];
+  for (const [k, set] of texts) {
+    const st = JSON.parse(k), list = [...set], ref = alone(st, list[0], O, O);
+    let yUp = null;
+    if (moved(ref, alone(st, list[0], O, O + 0.999), 1)) {
+      let lo = 0, hi = 0.999;
+      for (let i = 0; i < 20; i++) { const m = (lo + hi) / 2; if (moved(ref, alone(st, list[0], O, O + m), 0)) lo = m; else hi = m; }
+      yUp = hi;
+    }
+    const glyphs = list.map(text => {
+      const a = alone(st, text, O, O);
+      let x0 = T, y0 = T, x1 = -1, y1 = -1;
+      for (let y = 0; y < T; y++) for (let x = 0; x < T; x++) if (a[y * T + x]) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+      if (x1 < 0) return { text, left: 0, top: 0, w: 0, h: 0, a: [] };
+      const cov = [];
+      for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) cov.push(a[y * T + x]);
+      return { text, left: x0 - O, top: y0 - O, w: x1 - x0 + 1, h: y1 - y0 + 1, a: cov };
+    });
+    atlas.push({ font: st[0], align: st[1], base: st[2], yUp, glyphs });
+  }
+  await fetch('/atlas', { method: 'POST', body: JSON.stringify(atlas) });
   return n + ' frames; ' + await (await fetch('/finish', { method: 'POST' })).text();
 })().catch(e => fetch('/error', { method: 'POST', body: String(e && e.stack || e) }))
 """
@@ -125,6 +180,7 @@ OP = {"beginPath": 1, "closePath": 2, "moveTo": 3, "lineTo": 4, "quadraticCurveT
 CLIP_OUT = 27     # keep what is outside the path. The canvas has no such call: see hole()
 # every stroke is drawn with round ends and corners, which is all his drawings use bar a few pointed corners
 SAME = {"=lineCap": ("round",), "=lineJoin": ("round", "miter"), "=globalCompositeOperation": ("source-over",)}
+TEXT = ("=font", "=textAlign", "=textBaseline")   # text state: no instruction depends on it
 
 
 def q(v, scale=16):
@@ -178,6 +234,7 @@ def encode(calls):
             if n in SAME:
                 if a[0] not in SAME[n]: return None
                 continue
+            if n in TEXT: continue
             if n not in OP or (n in ("fill", "clip") and a): return None
             out.append(OP[n])
             if n in ("moveTo", "lineTo", "translate"): out += q(a[0]) + q(a[1])
@@ -202,15 +259,87 @@ def encode(calls):
     return bytes(out) if len(out) < 65536 else None
 
 
-def check(frames):
-    """How well vec.h redraws each (instructions, rgba): a list of (mean % difference, far pixels, overflowed)."""
-    exe = os.path.join(tempfile.gettempdir(), "lump_vec_check")
-    src = os.path.join(ROOT, "tools", "vec_check.cpp"); hdr = os.path.join(ROOT, "firmware", "src", "vec.h")
+def native(name, header):
+    """tools/<name>.cpp built with the firmware's own firmware/src/<header>, rebuilt when either changes."""
+    exe = os.path.join(tempfile.gettempdir(), "lump_" + name)
+    src = os.path.join(ROOT, "tools", name + ".cpp"); hdr = os.path.join(ROOT, "firmware", "src", header)
     if not os.path.exists(exe) or os.path.getmtime(exe) < max(os.path.getmtime(src), os.path.getmtime(hdr)):
         subprocess.run(["clang++", "-O2", "-std=c++17", "-I", os.path.dirname(hdr), src, "-o", exe], check=True)
+    return exe
+
+
+def check(frames):
+    """How well vec.h redraws each (instructions, rgba): a list of (mean % difference, far pixels, overflowed)."""
     feed = b"".join(struct.pack("<I", len(v)) + v + rgba for v, rgba in frames)
-    res = subprocess.run([exe], input=feed, capture_output=True, check=True).stdout.decode().split("\n")
+    res = subprocess.run([native("vec_check", "vec.h")], input=feed, capture_output=True, check=True).stdout.decode().split("\n")
     return [(float(a), int(b), c == "1") for a, b, c in (line.split() for line in res if line)]
+
+
+# ---- glyph frames: a background fill and text, drawn from the atlas by firmware/src/glyphs.h ----
+QUIET = ("=lineCap", "=lineJoin", "=lineWidth", "=strokeStyle", "setLineDash", "=lineDashOffset")   # nothing a fill or text uses
+
+
+def glyph_list(calls):
+    """A frame that is only a background fill and text, as (background rgb565, [(x, y, atlas key, rgb565)]) in drawing
+    order, or None. Glyphs that draw nothing on the screen are left out."""
+    fill, alpha, state, bg, out = None, 1.0, [None, None, None], None, []
+    try:
+        for o in calls:
+            n, a = o[0], o[1:]
+            if n in QUIET: continue
+            if n == "=fillStyle": fill = a[0]
+            elif n == "=globalAlpha": alpha = float(a[0])
+            elif n in TEXT: state[TEXT.index(n)] = a[0]
+            elif n == "=globalCompositeOperation":
+                if a[0] != "source-over": return None
+            elif n == "fillRect":                         # only a wipe of the whole screen, opaque
+                r, g, b, k = colour(fill); x, y, w, h = a[:4]
+                if k < 255 or alpha < 1 or x > 0 or y > 0 or x + w < 240 or y + h < 240: return None
+                bg, out = rgb565(r, g, b), []
+            elif n == "fillText":
+                if bg is None or len(a) != 3: return None   # on whatever the last frame left, or squeezed to a width
+                st = texts.get(tuple(state)); text, x, y = a
+                if not st or text not in st["glyphs"]: return None
+                left, top, w, h, _ = st["glyphs"][text]
+                ix = math.floor(x + 0.5)
+                iy = math.floor(y) + (y - math.floor(y) >= st["yUp"]) if st["yUp"] is not None else math.floor(y + 0.5)
+                r, g, b, k = colour(fill); f = k / 255 * alpha
+                col = rgb565(int(r * f + 0.5), int(g * f + 0.5), int(b * f + 0.5))
+                if not w or ix + left >= 240 or iy + top >= 240 or ix + left + w <= 0 or iy + top + h <= 0: continue
+                if col == bg and f < 1: continue          # invisible: drawn, it would only cut into what is under it
+                if not (-32768 <= ix < 32768 and -32768 <= iy < 32768): return None
+                out.append((ix, iy, (*state, text), col))
+            else:
+                return None
+    except (TypeError, AttributeError, IndexError, ValueError, KeyError):   # a gradient, a NaN, a call with odd arguments
+        return None
+    return None if bg is None else (bg, out)
+
+
+def glyph_frame(bg, glyphs, index):
+    """The bytes of a glyph frame (after its u16 length), or None if it is too long or needs a glyph past the atlas."""
+    if any(index.get(k, 256) > 255 for _, _, k, _ in glyphs) or 2 + 7 * len(glyphs) > 65535: return None
+    return struct.pack("<H", bg) + b"".join(struct.pack("<hhBH", x, y, index[k], col) for x, y, k, col in glyphs)
+
+
+def atlas_block(keys):
+    """The atlas as the .bin stores it, its glyphs in this order: coverage rounded to 4 bits."""
+    at, rec = [], bytearray()
+    for k in keys:
+        left, top, w, h, cov = texts[k[:3]]["glyphs"][k[3]]
+        at.append(len(rec)); rec += struct.pack("<bbBB", left, top, w, h)
+        for y in range(h):
+            row = [(v * 15 + 127) // 255 for v in cov[y * w:(y + 1) * w]] + [0]
+            rec += bytes(row[x] << 4 | row[x + 1] for x in range(0, w, 2))
+    return struct.pack("<HI", len(keys), len(rec)) + b"".join(struct.pack("<I", o) for o in at) + bytes(rec)
+
+
+def check_glyphs(atlas, frames):
+    """How well glyphs.h redraws each (glyph frame, rgba) from the atlas: a list of (mean % difference, far pixels)."""
+    if not frames: return []
+    feed = struct.pack("<I", len(atlas)) + atlas + b"".join(struct.pack("<I", len(g)) + g + rgba for g, rgba in frames)
+    res = subprocess.run([native("glyph_check", "glyphs.h")], input=feed, capture_output=True, check=True).stdout.decode().split("\n")
+    return [(float(a), int(b)) for a, b in (line.split() for line in res if line)]
 
 
 def lint(name, pics, calls, stuck, shows, size):
@@ -230,7 +359,7 @@ def lint(name, pics, calls, stuck, shows, size):
     if pinks: notes.append(f"The board will repaint {', '.join(sorted(pinks))} in his body colour: it takes pinks and purples for him.")
     lit = lambda rgba, x, y: max(rgba[(y * 240 + x) * 4:(y * 240 + x) * 4 + 3]) > 110     # brighter than a wall or a sky
     for side, cells in (("left", [(0, y) for y in range(186)]), ("right", [(239, y) for y in range(186)]), ("top", [(x, 0) for x in range(240)])):
-        framed = lambda f: any(c[0] == "scale" for c in calls[f][:14])      # seen through kit.view: the edges are meant to be crossed
+        framed = lambda f: any(c[0] == "scale" for c in calls[f][:17])      # seen through kit.view: the edges are meant to be crossed
         cut = sorted(d for d, frames in shows.items() if d.startswith(name + "_") and any(not framed(f) and sum(lit(pics[f], x, y) for x, y in cells) > 10 for f in frames))
         if cut: notes.append(f"Something bright touches the {side} edge in {', '.join(cut[:10])}{' and more' if len(cut) > 10 else ''}. "
                              "Fine for a setting or a slide in or out; anywhere else a prop or a Lump is cut off.")
@@ -273,36 +402,66 @@ def build():
         body += struct.pack("<H", len(seq)) + struct.pack(f"<{len(seq)}H", *seq)
     vec = [encode(c) for c in calls]
     scores = iter(check([(v, pics[i]) for i, v in enumerate(vec) if v is not None]))
-    blobs, why = [], {"instructions": 0, "pixels: uses something the renderer can't draw": 0, "pixels: didn't match closely enough": 0}
-    worst = (0.0, 0)
+    # what the instructions cannot draw may be glyphs: checked against the browser with every glyph the page drew,
+    # then stored with only the glyphs the kept frames use
+    lists = {i: g for i, g in ((i, glyph_list(calls[i])) for i, v in enumerate(vec) if v is None) if g}
+    keys = list(dict.fromkeys(k for i in sorted(lists) for _, _, k, _ in lists[i][1]))
+    tried = {i: glyph_frame(*lists[i], {k: n for n, k in enumerate(keys)}) for i in lists}
+    tried = {i: g for i, g in tried.items() if g is not None}
+    gscores = dict(zip(tried, check_glyphs(atlas_block(keys[:256]), [(g, pics[i]) for i, g in tried.items()])))
+    kept = sorted(i for i, (mean, far) in gscores.items() if mean <= MAX_MEAN and far <= MAX_FAR)
+    keys = list(dict.fromkeys(k for i in kept for _, _, k, _ in lists[i][1]))
+    index = {k: n for n, k in enumerate(keys)}
+    glyphed = {i: glyph_frame(*lists[i], index) for i in kept}
+    atlas = atlas_block(keys)
+    blobs, why = [], {"instructions": 0, "glyphs": 0, "pixels: uses something the renderer can't draw": 0,
+                      "pixels: didn't match closely enough": 0, "pixels: glyphs didn't match closely enough": 0}
+    worst, gworst = (0.0, 0), (0.0, 0)
     for i, v in enumerate(vec):
+        if i in glyphed:
+            g = glyphed[i]; gworst = (max(gworst[0], gscores[i][0]), max(gworst[1], gscores[i][1]))
+            why["glyphs"] += 1; blobs.append((3, struct.pack("<H", len(g)) + g)); continue
         if v is None:
-            why["pixels: uses something the renderer can't draw"] += 1; blobs.append((0, rle(pics[i]))); continue
+            why["pixels: glyphs didn't match closely enough" if i in gscores else "pixels: uses something the renderer can't draw"] += 1
+            blobs.append((0, rle(pics[i]))); continue
         mean, far, overflowed = next(scores)
         if overflowed or mean > MAX_MEAN or far > MAX_FAR:
             why["pixels: didn't match closely enough"] += 1; blobs.append((0, rle(pics[i]))); continue
         worst = (max(worst[0], mean), max(worst[1], far))
-        why["instructions"] += 1; blobs.append((1, struct.pack("<H", len(v)) + v))
-    out = bytearray(b"LUMP") + struct.pack("<HHBB", 5, len(blobs), len(moods), 24)
+        why["instructions"] += 1; blobs.append((2, struct.pack("<H", len(v)) + v))
+    out = bytearray(b"LUMP") + struct.pack("<HHBB", 6, len(blobs), len(moods), 24)
     for m in meta["moments"]:
         out += bytes([m["base"]]) + pstr(m["name"])
-    out += struct.pack("<H", len(meta["seqs"])) + body
+    out += struct.pack("<H", len(meta["seqs"])) + body + atlas
     off = 0
     for kind, blob in blobs:
-        out += struct.pack("<I", off | (kind << 31)); off += len(blob)
+        out += struct.pack("<I", off | (kind << 30)); off += len(blob)
+    if off >= 1 << 30: sys.exit("more than a gigabyte of frames")
     for _, blob in blobs:
         out += blob
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     with open(out_path, "wb") as f:
         f.write(out)
+    if refs_path:                                    # [u32 frame index][u32 length][zlib of its RGBA], per glyph frame
+        with open(refs_path, "wb") as f:
+            for i in glyphed:
+                z = zlib.compress(pics[i], 6); f.write(struct.pack("<II", i, len(z)) + z)
     as_pixels = sorted(d for d, frames in shows.items() if any(not blobs[f][0] for f in frames))
+    gsizes = sorted(len(b) for k, b in blobs if k == 3)
     return {**({"lint": lint(clip_name, pics, calls, [d for d in as_pixels if d.startswith(clip_name + "_")], shows, len(out)), "staging": staging(clip_name, pics, shows)} if clip_name else {}),
             "frames_rendered": len(where), "unique_frames": len(blobs), "bytes": len(out), "moods": len(moods),
             "sequences": len(meta["seqs"]), "kept_as": why,
-            "named_drawings": {"total": len(shows), "all_instructions": len(shows) - len(as_pixels), "with_pixel_frames": as_pixels},
-            "instruction_bytes": sum(len(b) for k, b in blobs if k),
+            "named_drawings": {"total": len(shows), "without_pixel_frames": len(shows) - len(as_pixels), "with_pixel_frames": as_pixels},
+            "instruction_bytes": sum(len(b) for k, b in blobs if k == 2),
+            "glyph_bytes": sum(gsizes), "atlas_bytes": len(atlas), "atlas_glyphs": len(keys),
             "pixel_bytes": sum(len(b) for k, b in blobs if not k),
-            "worst_instruction_frame": {"mean_difference_pct": worst[0], "pixels_far_off": worst[1]}, "out": out_path}
+            "glyph_frame_bytes": {"smallest": gsizes[0], "median": gsizes[len(gsizes) // 2], "largest": gsizes[-1]} if gsizes else None,
+            "glyphs_in_a_frame": max((len(lists[i][1]) for i in glyphed), default=0),
+            "text_states": [{"font": k[0], "align": k[1], "baseline": k[2], "texts": len(v["glyphs"]), "y_moves_down_past": v["yUp"]} for k, v in texts.items()],
+            "worst_instruction_frame": {"mean_difference_pct": worst[0], "pixels_far_off": worst[1]},
+            "worst_glyph_frame": {"mean_difference_pct": gworst[0], "pixels_far_off": gworst[1]},
+            "glyph_frames_refused": {i: {"mean_difference_pct": m, "pixels_far_off": f} for i, (m, f) in gscores.items() if i not in glyphed},
+            "out": out_path}
 
 
 def sheet():
@@ -360,12 +519,19 @@ class H(http.server.SimpleHTTPRequestHandler):
         u = urlparse(self.path); n = int(self.headers.get("Content-Length", 0)); body = self.rfile.read(n)
         q = parse_qs(u.query)
         if u.path == "/meta":
-            meta.clear(); meta.update(json.loads(body)); units.clear(); where.clear(); named.clear(); res = b"ok"
+            meta.clear(); meta.update(json.loads(body)); units.clear(); where.clear(); named.clear(); texts.clear(); res = b"ok"
         elif u.path == "/frame":
             at = (q["seq"][0], int(q["tick"][0])); named[at] = q["d"][0]
             units[int(q["id"][0])] = (body[:PIXELS], json.loads(body[PIXELS:])); where[at] = int(q["id"][0]); res = b"ok"
         elif u.path == "/same":
             at = (q["seq"][0], int(q["tick"][0])); named[at] = q["d"][0]; where[at] = int(q["as"][0]); res = b"ok"
+        elif u.path == "/atlas":                    # every text the page drew, alone (EXPORT_JS); what the format can't hold is left out
+            texts.clear()
+            for st in json.loads(body):
+                texts[(st["font"], st["align"], st["base"])] = {"yUp": st["yUp"], "glyphs": {
+                    g["text"]: (g["left"], g["top"], g["w"], g["h"], g["a"]) for g in st["glyphs"]
+                    if -128 <= g["left"] < 128 and -128 <= g["top"] < 128 and g["w"] < 256 and g["h"] < 256}}
+            res = b"ok"
         elif u.path == "/error":                    # the page hit a script error (headless: say so and stop)
             result["error"] = body.decode(errors="replace"); done.set(); res = b"ok"
         elif u.path == "/finish":
@@ -406,8 +572,10 @@ if __name__ == "__main__":
     ap.add_argument("--define", metavar="JSON", help="a file of extra sequences made from existing drawings")
     ap.add_argument("--out", help="where to write (default: lump.bin, or ~/.desk-buddy/clips/NAME.clip)")
     ap.add_argument("--page", help="the page to bake from, with the same interface (default: design/lump.html)")
+    ap.add_argument("--refs", metavar="FILE", help="also save the browser's picture of every glyph frame (for emulator/checks/glyph_fidelity.mjs)")
     args = ap.parse_args()
     if args.page: PAGE = os.path.abspath(args.page)
+    if args.refs: refs_path = os.path.abspath(args.refs)
     if args.clip:
         source = lambda n: os.path.join(DESIGN, "clips", n + ".js")
         names = sorted(os.path.basename(p)[:-3] for p in glob.glob(source("*"))) if args.clip == "all" else [args.clip]

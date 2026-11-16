@@ -5,6 +5,7 @@
 // the hooks the constructor takes, so a page and a test drive the same code.
 
 import { Canvas, W, H } from './vec.mjs';
+import * as glyphs from './glyphs.mjs';
 import { Sprite, color565 } from './lgfx.mjs';
 
 export const LOOP = 0, TRANS = 1, EVENT = 2;
@@ -32,7 +33,7 @@ const toInt = s => { const v = parseInt(s, 10); return Number.isNaN(v) ? 0 : v; 
 const toFloat = s => { const v = parseFloat(s); return Number.isNaN(v) ? 0 : v; };
 const decoder = new TextDecoder('latin1');
 
-function newSrc() { return { buf: null, offsets: 0, data: 0, end: 0, own: null, name: '', used: 0, tap: false }; }
+function newSrc() { return { buf: null, offsets: 0, data: 0, end: 0, atlas: glyphs.emptyAtlas(), own: null, name: '', used: 0, tap: false }; }
 
 function newAnim() {
   return {
@@ -106,8 +107,8 @@ export class Board {
     const rdStr = () => { const n = buf[p++]; const s = decoder.decode(buf.subarray(p, p + n)); p += n; return s; };
     if (buf[0] !== 0x4C || buf[1] !== 0x55 || buf[2] !== 0x4D || buf[3] !== 0x50) return false;   // "LUMP"
     p += 4;
-    const version = rd16(buf, p); p += 2;            // 3: every frame is pixels. 4: a frame may be instructions. 5: up to 65535 sequences
-    if (version < 3 || version > 5) return false;
+    const version = rd16(buf, p); p += 2;            // 3: every frame is pixels. 4: a frame may be instructions. 5: up to 65535 sequences. 6: glyph frames and their atlas
+    if (version < 3 || version > 6) return false;
     const nFrames = rd16(buf, p); p += 2;
     const nMoods = buf[p++], fps = buf[p++], moodOf = [];
     if (nMoods > MAX_MOODS) return false;
@@ -137,13 +138,17 @@ export class Board {
       else if (A.kind[i] === TRANS) A.transOf[A.from[i]][A.to[i]] = i;
     }
     if (!clip) for (let m = 0; m < nMoods; m++) if (A.loopOf[m] < 0) return false;
+    const atlas = glyphs.emptyAtlas();
+    if (version >= 6 && (p = glyphs.parseAtlas(buf, p, end, atlas)) < 0) return false;
     if (!room(nFrames * 4)) return false;
     const S = A.srcs[si];
-    S.buf = buf; S.offsets = p; p += nFrames * 4; S.data = p; S.end = end;
+    S.buf = buf; S.offsets = p; p += nFrames * 4; S.data = p; S.end = end; S.atlas = atlas;
     const have = end - S.data;
-    for (let f = 0; f < nFrames; f++) {
-      const o = rd32(buf, S.offsets + 4 * f), at = o & 0x7FFFFFFF;
-      if (at >= have || ((o >>> 31) && (at + 2 > have || at + 2 + rd16(buf, S.data + at) > have))) return false;
+    for (let f = 0; f < nFrames; f++) {      // the top two bits: 00 pixels, 10 instructions, 11 glyphs (version 6)
+      const o = rd32(buf, S.offsets + 4 * f), kind = o >>> 30, at = o & 0x3FFFFFFF;
+      if (kind === 1 || (kind === 3 && version < 6)) return false;
+      if (at >= have || (kind >= 2 && (at + 2 > have || at + 2 + rd16(buf, S.data + at) > have))) return false;
+      if (kind === 3 && rd16(buf, S.data + at) < 2) return false;
     }
     A.nSeqs = first + n;
     return true;
@@ -168,12 +173,13 @@ export class Board {
     c[0] = Math.min(255, Math.trunc(alpha * this.tintR + beta * 255)); c[1] = Math.min(255, Math.trunc(alpha * this.tintG + beta * 241)); c[2] = Math.min(255, Math.trunc(alpha * this.tintB + beta * 220));
   }
 
-  // ---------- drawFrame(): instructions through vec, or RLE runs of [count][rgb565 big-endian] ----------
+  // ---------- drawFrame(): instructions through vec, glyphs through glyphs, or RLE runs of [count][rgb565 big-endian] ----------
   drawFrame(src, idx) {
     const S = this.A.srcs[src], buf = S.buf;
-    const o = rd32(buf, S.offsets + 4 * idx);
-    let p = S.data + (o & 0x7FFFFFFF);
-    if (o >>> 31) { this.cv.play(buf, p + 2, rd16(buf, p)); return; }
+    const o = rd32(buf, S.offsets + 4 * idx), kind = o >>> 30;
+    let p = S.data + (o & 0x3FFFFFFF);
+    if (kind === 3) { glyphs.draw(this.fb, S.atlas, buf, p + 2, rd16(buf, p)); return; }     // glyphs keep their colours, as on the board
+    if (kind === 2) { this.cv.play(buf, p + 2, rd16(buf, p)); return; }
     const out = this.fb, N = W * H;
     let i = 0, lastIn = 0xFFFF, lastOut = 0;           // as on the board: a frame whose first run is pure white starts it black
     while (i < N && p + 3 <= S.end) {
