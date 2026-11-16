@@ -16,6 +16,13 @@ It also sends one-off events: "oops" when a tool call fails, and "hello" the fir
 time you start a session after a long break. The board itself handles escalation
 (alert -> waiting after 45 s, working -> longhaul after 10 min) and idle fidgets.
 
+Sage's mind (class Mind; mind/ in the repository) chooses the acts: a small Node process beside the bridge, told only
+the kind of thing that happened (tests failed, a build, a push, a Stop, a compaction, a hello, a tap, idling, waiting
+for you, its battery) and never a command or a prompt. It answers from its table of reactions and the website's own
+patience, and the bridge plays its choice with "e <act>" (acts are in the art: nothing goes over Wi-Fi). The moods stay
+the bridge's. Without it (no Node, "mind": false in config.json, or it stops or is slow) the bridge does what it did
+before: Lump's clips and events.
+
 Chat and Cowork have no hooks, so a small helper (tools/appwatch, its own login
 item) reads the Claude app's accessibility tree and posts page states to /app.
 
@@ -48,7 +55,7 @@ Without a board: python3 tools/buddy_bridge.py --emulator (or "emulator": true i
 web emulator instead (emulator/, see its README): the bridge serves the page at /emulator/ and talks to it
 in the board's own line protocol. Everything else behaves as with a board.
 """
-import base64, glob, http.server, json, logging, logging.handlers, os, queue, random, re, subprocess, sys, threading, time, wave
+import base64, glob, http.server, json, logging, logging.handlers, os, queue, random, re, shutil, subprocess, sys, threading, time, wave
 from urllib.parse import parse_qs, urlparse
 try:
     import serial
@@ -131,15 +138,28 @@ CLIP_GAP = 120
 IDLE_EVERY = (50, 70)
 FIDGETS = ["fidget_toss", "fidget_twitch", "fidget_bubble"]
 CLIP_EVERY = {"done": 10 * 60, "waiting": 3 * 60, "limit": 60 * 60}    # least time between two of a kind
-CLIP_COMMANDS = [                       # a Bash command Claude ran: (pattern, clip if it worked, clip if it failed)
-    (r"\b(pytest|unittest|jest|vitest|mocha|rspec|phpunit|go test|cargo test|swift test|ctest|(npm|pnpm|yarn|bun)( run)? test|make (test|check))\b", "tests_pass", "tests_fail"),
-    (r"\bgit push\b", "git_push", None),
-    (r"\bgit (merge|rebase|pull|cherry-pick)\b", None, "merge_conflict"),
+COMMANDS = [                            # a Bash command Claude ran: (pattern, what it is if it worked, if it failed)
+    (r"\b(pytest|unittest|jest|vitest|mocha|rspec|phpunit|go test|cargo test|swift test|ctest|(npm|pnpm|yarn|bun)( run)? test|make (test|check))\b", "tests", "tests"),
+    (r"\bgit push\b", "push", None),
+    (r"\bgit (merge|rebase|pull|cherry-pick)\b", None, "conflict"),
     (r"\bgit (revert|reset|restore)\b", "rollback", None),
-    (r"\b(eslint|ruff|flake8|pylint|clippy|rubocop|shellcheck|prettier|(npm|pnpm|yarn|bun) run lint)\b", "lint_fluff", None),
-    (r"\b(deploy|kubectl apply|terraform apply|ota\.py)\b", "deploy_lever", None),
-    (r"\b((npm|pnpm|yarn|bun) run build|cargo build|go build|pio run|xcodebuild|docker build|tsc)\b", "build_bike", None),
+    (r"\b(eslint|ruff|flake8|pylint|clippy|rubocop|shellcheck|prettier|(npm|pnpm|yarn|bun) run lint)\b", "lint", None),
+    (r"\b(deploy|kubectl apply|terraform apply|ota\.py)\b", "deploy", None),
+    (r"\b((npm|pnpm|yarn|bun) run build|cargo build|go build|pio run|xcodebuild|docker build|tsc)\b", "build", "build"),
 ]
+# Lump's clips for those, played over Wi-Fi only when Sage's mind is not there to choose
+COMMAND_CLIPS = {("tests", True): "tests_pass", ("tests", False): "tests_fail", ("push", True): "git_push",
+                 ("conflict", False): "merge_conflict", ("rollback", True): "rollback", ("lint", True): "lint_fluff",
+                 ("deploy", True): "deploy_lever", ("build", True): "build_bike", ("big_diff", True): "big_diff"}
+# Sage's mind (mind/, a Node process; see class Mind): it chooses the acts, the bridge keeps the moods. The contract
+# between the two is mind/README.md: its protocol, and the signals the bridge sends (these, and no others).
+MIND_SCRIPT = os.path.join(ROOT, "mind", "sage-mind.mjs")
+MIND_PROTOCOL = 1
+MIND_SIGNALS = ("tests", "build", "push", "deploy", "conflict", "rollback", "lint", "big_diff", "done", "compact", "hello", "oops",
+                "waiting", "idle", "usage", "tap")
+MIND_ANSWER = 0.3                       # seconds it has to answer before the bridge goes on without it
+MIND_RETRY = (2, 300)                   # once it stops: the first wait before starting it again, and the longest
+WAIT_ASK = 30                           # while you're kept waiting, it is told so this often (it keeps its own cooldown)
 CLIP_SETS = {
     "waiting": ["polite_cough", "sign_spinner", "semaphore", "paper_note", "doorbell", "tin_can_phone", "hourglass", "flare_gun",
                 "bottle_message", "tumbleweed"],
@@ -180,17 +200,23 @@ if sys.stderr.isatty():          # under launchd stderr is bridge.out, which onl
     log.addHandler(logging.StreamHandler())
 
 
-def command_clip(cmd, worked, payload):
-    """The clip that goes with a Bash command Claude just ran, if there is one."""
+def command_kind(cmd, worked, payload):
+    """What a Bash command Claude just ran was (tests, a push, a build...), if it is one Sage reacts to. Only this
+    goes on to Sage's mind, never the command."""
     if re.search(r"\b(pip3?|brew|npm|pnpm|yarn|bun|cargo|apt(-get)?) (install|add|i)\b", cmd):
         return None
     if worked and re.search(r"\bgit (diff|show)\b", cmd) and len(json.dumps(payload.get("tool_response") or "")) > 20000:
         return "big_diff"
-    for pattern, good, bad in CLIP_COMMANDS:
+    for pattern, good, bad in COMMANDS:
         if re.search(pattern, cmd):
-            name = good if worked else bad
-            return None if name == "merge_conflict" and "conflict" not in json.dumps(payload).lower() else name
+            kind = good if worked else bad
+            return None if kind == "conflict" and "conflict" not in json.dumps(payload).lower() else kind
     return None
+
+
+def command_clip(cmd, worked, payload):
+    """Lump's clip that goes with a Bash command Claude just ran, if there is one."""
+    return COMMAND_CLIPS.get((command_kind(cmd, worked, payload), worked))
 
 
 def clip_names():
@@ -435,6 +461,152 @@ class Device:
                 return True
             except Exception as e:
                 log.info("write failed: %s", e); return False
+
+
+def node_path(configured=None):
+    """Node for Sage's mind: config.json "node", else the PATH, else where Homebrew and nvm put it (a login item's
+    PATH has none of them)."""
+    if configured:
+        return configured if os.access(configured, os.X_OK) else None
+    nvm = sorted(glob.glob(os.path.expanduser("~/.nvm/versions/node/v*/bin/node")),
+                 key=lambda p: [int(x) for x in re.findall(r"\d+", p.split("/versions/node/")[1])], reverse=True)
+    return shutil.which("node") or next((p for p in ["/opt/homebrew/bin/node", "/usr/local/bin/node", *nvm] if os.access(p, os.X_OK)), None)
+
+
+class Mind:
+    """Sage's mind (mind/sage-mind.mjs), a Node process beside the bridge. Told what happened (a signal, and only the
+    context a reaction needs: never a command or a prompt), it answers with the act Sage plays, from its table of
+    reactions and the website's own patience; one line of JSON each way, the contract in mind/README.md.
+    If Node or the mind is missing, too slow or stops, ask() returns None and the bridge does what it did before the
+    mind. Each trouble is logged once, and a stopped mind is started again, waiting longer each time."""
+
+    def __init__(self, art=None, script=MIND_SCRIPT, node=None, answer=MIND_ANSWER, start=True):
+        self.art, self.script, self.node, self.answer = art, script, node, answer
+        self.lock, self.writing = threading.Lock(), threading.Lock()
+        self.proc, self.ready, self.acts, self.n, self.pending = None, False, 0, 0, {}
+        self.retry_at, self.wait, self.slow = 0.0, MIND_RETRY[0], 0
+        self.said, self.error = None, ""                   # the trouble last logged (each is said once), its stderr
+        if start:
+            self.start()
+
+    def _trouble(self, what):
+        if what != self.said:
+            self.said = what
+            log.info("mind: %s: carrying on without it", what)
+
+    def _later(self):
+        self.retry_at = time.time() + self.wait
+        self.wait = min(self.wait * 2, MIND_RETRY[1])
+
+    def start(self):
+        node = node_path(self.node)
+        if not node or not os.path.exists(self.script):
+            self._trouble("no node to run it" if not node else f"{self.script} is missing")
+            return self._later()
+        try:
+            proc = subprocess.Popen([node, self.script], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                    text=True, bufsize=1)
+        except OSError as e:
+            self._trouble(f"can't start it ({e})")
+            return self._later()
+        with self.lock:
+            self.proc, self.ready, self.acts, self.slow, self.error = proc, False, 0, 0, ""
+        threading.Thread(target=self._read, args=(proc,), daemon=True).start()
+        threading.Thread(target=self._errors, args=(proc,), daemon=True).start()
+        self._send(proc, {"id": 0, "signal": "art", "protocol": MIND_PROTOCOL, **({"path": self.art} if self.art else {"acts": []})})
+
+    def keep_alive(self):
+        """Start it again once its wait is over, if it stopped."""
+        if self.proc is None and time.time() >= self.retry_at:
+            self.start()
+
+    def stop(self):
+        with self.lock:
+            proc, self.proc, self.ready = self.proc, None, False
+        if proc:
+            proc.kill()
+            proc.wait()
+            try: proc.stdin.close()
+            except Exception: pass
+
+    def _send(self, proc, msg):
+        try:
+            with self.writing:
+                proc.stdin.write(json.dumps(msg) + "\n"); proc.stdin.flush()
+            return True
+        except (OSError, ValueError):
+            return False                              # it stopped: _read says so
+
+    def _errors(self, proc):
+        for line in proc.stderr:                      # only its own failures: it is never told anything of yours
+            if re.match(r"\s*\w*Error\b", line):
+                self.error = line.strip()[:200]
+        proc.stderr.close()
+
+    def _read(self, proc):
+        for line in proc.stdout:
+            try:
+                a = json.loads(line)
+            except ValueError:
+                continue
+            i = a.pop("id", None)
+            if i == 0:                                # the answer to the art, in the protocol both speak
+                with self.lock:
+                    ours = a.get("protocol") == MIND_PROTOCOL
+                    ready = self.proc is proc and ours and (a.get("acts") or 0) > 0
+                    if ready:
+                        self.ready, self.acts, self.wait = True, a["acts"], MIND_RETRY[0]
+                if ready:
+                    self.said = None
+                    log.info("mind: ready, %s", a.get("why"))
+                else:
+                    self._trouble(f"it does not know the art ({a.get('why')})" if ours else
+                                  f"it speaks protocol {a.get('protocol')}, the bridge {MIND_PROTOCOL}")
+                continue
+            with self.lock:
+                waiter = self.pending.pop(i, None)
+            if waiter:
+                waiter[1] = a
+                waiter[0].set()
+        proc.stdout.close()
+        code = proc.wait()
+        try: proc.stdin.close()
+        except Exception: pass
+        with self.lock:
+            if self.proc is not proc:
+                return                                # stopped on purpose
+            self.proc, self.ready = None, False
+            waiting, self.pending = list(self.pending.values()), {}
+        for w in waiting:
+            w[0].set()
+        self._trouble(f"it stopped (exit {code}{': ' + self.error if self.error else ''})")
+        self._later()
+
+    def ask(self, signal, **context):
+        """The mind's answer to a signal ({"play": act, "why": ...} or {"why": ...}), or None without one in time."""
+        with self.lock:
+            proc = self.proc
+            if not proc or not self.ready:
+                return None
+            self.n += 1
+            i, waiter = self.n, [threading.Event(), None]
+            self.pending[i] = waiter
+        if not self._send(proc, {"id": i, "signal": signal, "now": round(time.time(), 3), **context}):
+            with self.lock:
+                self.pending.pop(i, None)
+            return None
+        if not waiter[0].wait(self.answer):
+            with self.lock:
+                self.pending.pop(i, None)
+                self.slow += 1
+                slow = self.slow
+            self._trouble(f"no answer within {self.answer * 1000:.0f} ms")
+            if slow >= 3:                             # stuck: start it again later
+                self.stop()
+                self._later()
+            return None
+        self.slow = 0
+        return waiter[1]
 
 
 class Calendar:
@@ -798,8 +970,12 @@ def usage_colour(frac):
 
 
 class Buddy:
-    def __init__(self, dev=None, focus=None, sounds=None, start=True, emulator=None):
+    def __init__(self, dev=None, focus=None, sounds=None, start=True, emulator=None, mind=None):
         self.lock = threading.Lock()
+        self.mind = mind               # Sage's mind (class Mind): it chooses the acts; without it, the clips and gags as before
+        self.mind_said = {}            # signal -> the mind's last "nothing" and why, so it is logged once
+        self.next_wait_ask = 0.0
+        self.told_battery = None       # the battery (usage left) the mind was last told
         self.sessions = {}            # session_id -> {"state", "t", "cwd"}
         self.last_event = 0.0
         self.sent_mood = None
@@ -921,6 +1097,7 @@ class Buddy:
                 self.sessions.pop(sid, None)
             if state:
                 self._set(s, state, now)
+            busy = self.base_locked(now, skip=s) in ("alert", "working")     # other work still going on
             if event == "oops":
                 # a failure never interrupts "needs you": only show it while he's working
                 if self.base_locked(now) == "working":
@@ -928,16 +1105,40 @@ class Buddy:
                 else:
                     event = None
             log.info("hook %s %s%s -> %s", ev, sid[:8], "" if s.get("account", PERSONAL) == PERSONAL else " (%s)" % s["account"], state or "-")
-        clip = None
-        if ev in ("PostToolUse", "PostToolUseFailure") and p.get("tool_name") == "Bash":
-            name = command_clip((p.get("tool_input") or {}).get("command") or "", ev == "PostToolUse", p)
-            clip = name and self.auto_clip("command", [name])
-        elif ev == "Stop":
-            clip = self.auto_clip("done", CLIP_SETS["done"])
-        if event and not (clip and event == "oops"):    # a clip about the failure stands in for the plain "oops"
-            self.event(event)
+        self.update()                                   # the mood first: an act sent before it is lost on the way there
+        act = self.hook_act(ev, p, event, busy)
+        if act is None:                                 # no mind: Lump's clips and events, as before it
+            if ev in ("PostToolUse", "PostToolUseFailure") and p.get("tool_name") == "Bash":
+                name = command_clip((p.get("tool_input") or {}).get("command") or "", ev == "PostToolUse", p)
+                act = name and self.auto_clip("command", [name])
+            elif ev == "Stop":
+                act = self.auto_clip("done", CLIP_SETS["done"])
+            if event and not (act and event == "oops"):
+                self.event(event)
+        if event and not (act and event == "oops"):     # an act for the failure stands in for the plain "oops"
             self.sound({"hello": "hello", "oops": "uh_oh"}[event])
-        self.update()
+
+    def hook_act(self, ev, p, event, busy):
+        """A hook told to Sage's mind, a signal at a time until one plays an act: what kind of command it was (never the
+        command), a finish, a compaction, a hello, a failure. The act played, "" for none, None without a mind."""
+        asks = []
+        if ev in ("PostToolUse", "PostToolUseFailure") and p.get("tool_name") == "Bash":
+            kind = command_kind((p.get("tool_input") or {}).get("command") or "", ev == "PostToolUse", p)
+            if kind:
+                asks.append((kind, {"ok": ev == "PostToolUse"}))
+        elif ev == "Stop":
+            asks.append(("done", {"busy": busy}))
+        elif ev == "PreCompact":
+            asks.append(("compact", {}))
+        if event:
+            asks.append((event, {}))
+        if not asks:
+            return None if not self.mind_up() else ""
+        for signal, context in asks:
+            act = self.react(signal, **context)
+            if act != "":
+                return act
+        return ""
 
     def external(self, sid, state, stale=None, account=PERSONAL):
         """State from a non-hook source (the app watcher for Chat and Cowork)."""
@@ -1078,8 +1279,10 @@ class Buddy:
             else:
                 what = "giggle"
             self.last_active = now
+            frac = self.usage_frac(now)
         log.info("tap: %s", what)
         self.update()
+        self.react("tap", battery=None if frac is None else round(1 - frac, 2))   # a poke: its patience
 
     def sound(self, moment):
         """Play a moment's sound, unless it's night and you've not been around for a while
@@ -1244,7 +1447,10 @@ class Buddy:
         self.update()
         with self.lock:
             frac = self.usage_frac(time.time())
-        if frac is not None and frac >= 0.97:
+        battery = None if frac is None else round(1 - frac, 2)     # its battery is the usage left
+        if battery is not None and battery != self.told_battery and self.react("usage", battery=battery) is not None:
+            self.told_battery = battery
+        if not self.mind_up() and frac is not None and frac >= 0.97:
             self.auto_clip("limit", ["rate_limited"])
 
     def resend(self):
@@ -1292,6 +1498,31 @@ class Buddy:
             return True
         return False
 
+    def mind_up(self):
+        return bool(self.mind and self.mind.ready)
+
+    def react(self, signal, **context):
+        """Tell Sage's mind what happened and play the act it chooses (an act in the art, so nothing goes over Wi-Fi).
+        The act, "" when it chose none, or None when there is no mind to ask: the caller then does what it did before."""
+        if not self.mind_up():
+            return None
+        if signal not in MIND_SIGNALS:                  # not in the contract (mind/README.md): a bug here
+            log.info("mind: %s is not a signal of mind/README.md", signal)
+            return None
+        d = self.mind.ask(signal, mood=self.mood(), **context)
+        if d is None:
+            return None
+        act, why = d.get("play") or "", d.get("why") or ""
+        if act and not re.fullmatch(r"[a-z0-9_]{1,40}", act):
+            act, why = "", "not an act's name"
+        if act:
+            log.info("mind: %s -> %s (%s)", signal, act, why)
+            self.event(act)
+        elif self.mind_said.get(signal) != why:
+            log.info("mind: %s -> nothing (%s)", signal, why)
+        self.mind_said[signal] = "" if act else why
+        return act
+
     def play(self, name):
         """An animation asked for from the computer: None if there's no such animation,
         otherwise whether the board got it. A clip is sent to him first if he doesn't have it."""
@@ -1330,13 +1561,18 @@ class Buddy:
             waiting = any(s["state"] == "alert" and now - s["t"] >= 60 and self._effective(s, now) == "alert" for s in self.sessions.values())
             around = now - self.last_active < 30 * 60
         if waiting:
-            self.auto_clip("waiting", CLIP_SETS["waiting"])
+            if not self.mind_up():
+                self.auto_clip("waiting", CLIP_SETS["waiting"])
+            elif now >= self.next_wait_ask:
+                self.next_wait_ask = now + WAIT_ASK
+                if self.react("waiting") is None:
+                    self.auto_clip("waiting", CLIP_SETS["waiting"])
             return
         for m in self.meetings():
             start = m.get("start")
             if start and 0 < start - now < MEETING_LEAD and start not in self.meeting_clipped:
                 if self.auto_clip("meeting", CLIP_SETS["meeting"]): self.meeting_clipped.add(start)
-        if around:
+        if around and not self.mind_up():               # (the mind has its own late-night acts)
             lt = time.localtime(now); hour, today = lt.tm_hour + lt.tm_min / 60, time.strftime("%Y-%m-%d", lt)
             for name, h0, h1 in CLIP_HOURS:
                 if h0 <= hour < h1 and self.clip_days.get(name) != today:
@@ -1350,6 +1586,9 @@ class Buddy:
             if not idle or now < self.next_idle:
                 return
             self.next_idle = now + random.uniform(*IDLE_EVERY)
+        if self.react("idle", around=around, late=night_hour(time.localtime(now).tm_hour)) is not None:
+            return
+        with self.lock:
             pool = [n for n in CLIP_SETS["idle"] if n in clip_names()] if around and read_config().get("auto_clips") is not False else []
             name = random.choice([n for n in pool + FIDGETS if n not in self.recent_clips] or FIDGETS)
             self.recent_clips = (self.recent_clips + [name])[-20:]
@@ -1404,6 +1643,8 @@ class Buddy:
             except Exception: log.exception("tick failed")
 
     def tick(self, now):
+        if self.mind:
+            self.mind.keep_alive()
         if self.resync_at and now > self.resync_at:
             self.resync_at = 0; self.update(force=True)
         else:
@@ -1424,6 +1665,7 @@ class Buddy:
             now = time.time()
             app = getattr(self, "app", None)
             return {"mood": self.mood_locked(now), "sent": self.sent_mood, "counts": self.counts_locked(now), "device": self.dev.connected, "link": getattr(self.dev, "link", None),
+                    "mind": None if not self.mind else {"ready": self.mind.ready, "acts": self.mind.acts},
                     "colour": self.colour(now), "usage": self.usage,
                     "sound": bool(self.sounds.settings().get("enabled")),
                     "next_meeting": self.next_meeting(now),
@@ -1895,16 +2137,20 @@ if __name__ == "__main__":
     import argparse
     ap = argparse.ArgumentParser(description="Desk Buddy bridge: Claude Code hooks to the board (see the top of this file).")
     ap.add_argument("--emulator", action="store_true", help='drive the web emulator (emulator/) instead of a board; also "emulator": true in config.json')
-    ap.add_argument("--art", help="the .bin the emulator plays (default: firmware/data/lump.bin if there is one, else the test card)")
+    ap.add_argument("--art", help="the .bin the emulator plays, and Sage's mind reads its acts from (default: firmware/data/lump.bin if there is one, else the test card)")
     ap.add_argument("--port", type=int, default=HTTP_PORT, help="the HTTP port (default %(default)s, where the hooks post)")
     args = ap.parse_args()
-    hub = None
-    if args.emulator or read_config().get("emulator"):
+    cfg, hub = read_config(), None
+    if args.emulator or cfg.get("emulator"):
         hub = Emulator(args.art or next((p for p in (os.path.join(ROOT, "firmware", "data", "lump.bin"), os.path.join(EMULATOR_DIR, "testcard", "testcard.bin"))
                                          if os.path.exists(p)), None))
     elif serial is None:
         sys.exit("pyserial is missing (tools/install_bridge.sh installs it); without a board, run with --emulator")
-    buddy = Buddy(emulator=hub)
+    # the mind is told the art the board plays: the emulator's, else --art, config.json "art", or the committed bake
+    art = hub.art if hub else args.art or cfg.get("art") or next((p for p in (os.path.join(ROOT, "firmware", "data", n) for n in ("sage.bin", "lump.bin"))
+                                                                   if os.path.exists(p)), None)
+    mind = None if cfg.get("mind") is False else Mind(art=art, script=cfg["mind"] if isinstance(cfg.get("mind"), str) else MIND_SCRIPT, node=cfg.get("node"))
+    buddy = Buddy(emulator=hub, mind=mind)
     buddy.app = AppPages(buddy)
     buddy.calendar = Calendar()
     buddy.slack = SlackWatch(buddy)

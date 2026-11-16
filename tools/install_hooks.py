@@ -18,7 +18,7 @@ HOOK_CMD = ("curl -s -m 1 -o /dev/null -H 'Content-Type: application/json' "
 # events without a tool name take no matcher
 EVENTS = {"SessionStart": "*", "UserPromptSubmit": None, "PreToolUse": "*", "PermissionRequest": "*",
           "PostToolUse": "*", "PostToolUseFailure": "*", "Notification": "*", "Elicitation": "*",
-          "Stop": None, "StopFailure": "*", "SessionEnd": "*"}
+          "Stop": None, "StopFailure": "*", "SessionEnd": "*", "PreCompact": "*"}
 MARK = "127.0.0.1:47823/"
 
 

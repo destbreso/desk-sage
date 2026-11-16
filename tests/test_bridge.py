@@ -724,5 +724,287 @@ class FocusAcrossAccounts(unittest.TestCase):
             self.assertIsNone(self.f._front_account('"CFBundleIdentifier"="com.apple.Terminal"\n"pid"=9'))
 
 
+
+class FakeMind:
+    """Stands in for Sage's mind: records what it is told and answers from a table of signal -> act."""
+    acts = 31
+    def __init__(self, plays=None, ready=True): self.told, self.plays, self.ready = [], plays or {}, ready
+    def ask(self, signal, **context):
+        self.told.append((signal, context))
+        act = self.plays.get(signal)
+        return {"play": act, "why": "the test's"} if act else {"why": "nothing in the test"}
+    def keep_alive(self): pass
+    def signals(self): return [s for s, _ in self.told]
+
+
+class MindPath(BridgeTest):
+    """With Sage's mind up, the bridge tells it what happened and plays what it chooses; the moods stay the bridge's."""
+    plays = {"tests": "work_tests_fail", "done": "done_glider", "hello": "hello", "compact": "glyph_rain", "tap": "tap_hello",
+             "idle": "fidget_glance", "waiting": "fidget_look", "usage": "holo_battery"}
+
+    def make(self):
+        return bridge.Buddy(dev=FakeDevice(), focus=FakeFocus(), sounds=FakeSounds(), start=False, mind=FakeMind(self.plays))
+
+    def test_a_failing_test_command_plays_the_minds_act_instead_of_oops(self):
+        self.hook("UserPromptSubmit", "a")
+        self.hook("PostToolUseFailure", "a", tool_name="Bash", tool_input={"command": "npm test"})
+        self.assertEqual(self.b.mind.told[-1], ("tests", {"ok": False, "mood": "working"}))
+        self.assertIn("e work_tests_fail", self.b.dev.sent)
+        self.assertNotIn("e oops", self.b.dev.sent)
+        self.assertNotIn("uh_oh", self.b.sounds.played)          # the act stands in for the plain oops, sound and all
+
+    def test_the_mind_is_never_told_a_command_or_a_prompt(self):
+        self.hook("UserPromptSubmit", "a", prompt="the secret prompt")
+        self.hook("PostToolUse", "a", tool_name="Bash", tool_input={"command": "pytest tests/secret_place"},
+                  tool_response={"stdout": "secret output"})
+        self.hook("PostToolUse", "a", tool_name="Bash", tool_input={"command": "git push origin secret-branch"})
+        self.assertEqual(self.b.mind.signals(), ["tests", "push"])
+        self.assertNotIn("secret", json.dumps(self.b.mind.told))
+
+    def test_each_kind_of_command(self):
+        for cmd, ok, kind in (("cargo build --release", True, "build"), ("npm run build", False, "build"), ("git push", True, "push"),
+                              ("yarn deploy", True, "deploy"), ("ruff check .", True, "lint"), ("git revert HEAD", True, "rollback")):
+            self.b.mind.told.clear()
+            self.hook("PostToolUse" if ok else "PostToolUseFailure", "a", tool_name="Bash", tool_input={"command": cmd})
+            self.assertEqual(self.b.mind.told[0], (kind, {"ok": ok, "mood": self.b.mind.told[0][1]["mood"]}), cmd)
+        self.b.mind.told.clear()
+        self.hook("PostToolUseFailure", "a", tool_name="Bash", tool_input={"command": "git merge main"}, error="CONFLICT (content)")
+        self.assertEqual(self.b.mind.signals()[0], "conflict")
+        self.b.mind.told.clear()
+        self.hook("PostToolUse", "a", tool_name="Bash", tool_input={"command": "ls -la"})
+        self.assertEqual(self.b.mind.told, [])                   # nothing Sage reacts to
+
+    def test_a_quiet_stop_is_a_celebration_played_after_the_mood(self):
+        self.hook("UserPromptSubmit", "a")
+        self.hook("Stop", "a")
+        self.assertEqual(self.b.mind.told[-1], ("done", {"busy": False, "mood": "done"}))
+        sent = self.b.dev.sent
+        self.assertLess(sent.index("s done"), sent.index("e done_glider"))   # an act sent before the mood would be lost
+
+    def test_a_stop_with_other_work_going_on_says_so(self):
+        self.hook("UserPromptSubmit", "a")
+        self.hook("UserPromptSubmit", "b")
+        self.hook("Stop", "b")
+        self.assertEqual(self.b.mind.told[-1][1]["busy"], True)
+
+    def test_hello_after_a_long_quiet_and_compaction(self):
+        self.hook("SessionStart", "a", source="startup")
+        self.assertEqual(self.b.mind.signals(), ["hello"])
+        self.assertIn("e hello", self.b.dev.sent)
+        self.assertIn("hello", self.b.sounds.played)
+        self.hook("PreCompact", "a", trigger="auto")
+        self.assertEqual(self.b.mind.signals()[-1], "compact")
+        self.assertIn("e glyph_rain", self.b.dev.sent)
+
+    def test_a_failure_it_has_no_act_for_plays_nothing_but_keeps_the_voice(self):
+        self.hook("UserPromptSubmit", "a")
+        self.hook("PostToolUseFailure", "a", tool_name="Edit")
+        self.assertEqual(self.b.mind.signals()[-1], "oops")
+        self.assertNotIn("e oops", self.b.dev.sent)              # Sage has no act for it yet
+        self.assertIn("uh_oh", self.b.sounds.played)
+
+    def test_a_tap_is_told_with_its_battery(self):
+        self.b.set_usage({"five_hour": {"used_percentage": 80, "resets_at": NOON + 3600}})
+        self.b.tapped()
+        self.assertEqual(self.b.mind.told[-1], ("tap", {"battery": 0.2, "mood": "idle"}))
+        self.assertIn("e tap_hello", self.b.dev.sent)
+
+    def test_its_battery_is_told_when_it_changes(self):
+        usage = lambda pct: self.b.set_usage({"five_hour": {"used_percentage": pct, "resets_at": NOON + 3600}})
+        usage(30); usage(30); usage(80)
+        self.assertEqual([c["battery"] for s, c in self.b.mind.told if s == "usage"], [0.7, 0.2])
+
+    def test_idle_asks_the_mind_and_plays_none_of_lumps_fidgets(self):
+        self.b.last_active = self.clock()
+        self.clock.advance(bridge.IDLE_EVERY[1] + 1)
+        with mock.patch.object(bridge.threading, "Thread") as thread:
+            self.b.clip_tick(self.clock())
+        thread.assert_not_called()                               # nothing sent over Wi-Fi
+        self.assertEqual(self.b.mind.told[-1], ("idle", {"around": True, "late": False, "mood": "idle"}))
+        self.assertIn("e fidget_glance", self.b.dev.sent)
+
+    def test_late_at_night_and_away(self):
+        one_am = time.mktime(time.struct_time((2026, 11, 12, 1, 0, 0, 0, 0, -1)))
+        self.clock.t = one_am
+        self.b.last_active = one_am - 60                         # still at it
+        self.b.next_idle = 0
+        self.b.clip_tick(self.clock())
+        self.assertEqual(self.b.mind.told[-1][1]["late"], True)
+        self.clock.advance(3600)                                 # gone for an hour: asleep, so no idling to tell
+        self.b.next_idle = 0
+        self.b.clip_tick(self.clock())
+        self.assertEqual(len([s for s in self.b.mind.signals() if s == "idle"]), 1)
+
+    def test_waiting_for_you_is_told_twice_a_minute(self):
+        self.hook("PermissionRequest", "a")
+        self.clock.advance(61)
+        for k in range(40):
+            self.b.clip_tick(self.clock()); self.clock.advance(1)
+        self.assertEqual(self.b.mind.signals().count("waiting"), 2)
+        self.assertEqual(self.b.mind.told[-1][1]["mood"], "alert")
+
+    def test_a_nothing_is_logged_once(self):
+        self.b.mind.plays = {}
+        with mock.patch.object(bridge.log, "info") as info:
+            for _ in range(3):
+                self.hook("PostToolUseFailure", "a", tool_name="Edit")
+        said = [c for c in info.call_args_list if c.args and c.args[0].startswith("mind:")]
+        self.assertEqual(len(said), 1)
+
+    def test_nothing_outside_the_contract_is_sent_to_it(self):
+        self.assertIsNone(self.b.react("prompt", text="anything"))
+        self.assertEqual(self.b.mind.told, [])
+
+    def test_an_answer_that_is_not_an_acts_name_is_not_sent(self):
+        self.b.mind.plays = {"tap": "tap_hello\ns night"}
+        self.b.tapped()
+        self.assertFalse(any("tap_hello" in c for c in self.b.dev.sent))
+
+
+class MindFallback(BridgeTest):
+    """Without a mind, or with one that is not ready or does not answer, the bridge does what it did before."""
+    def test_no_mind_plays_oops_and_lumps_fidgets(self):
+        self.hook("UserPromptSubmit", "a")
+        self.hook("PostToolUseFailure", "a")
+        self.assertIn("e oops", self.b.dev.sent)
+
+    def test_a_mind_that_is_not_ready_is_not_asked(self):
+        self.b.mind = FakeMind({"oops": "glyph_glitch"}, ready=False)
+        self.hook("UserPromptSubmit", "a")
+        self.hook("PostToolUseFailure", "a")
+        self.assertEqual(self.b.mind.told, [])
+        self.assertIn("e oops", self.b.dev.sent)
+
+    def test_a_mind_that_does_not_answer_is_carried_on_without(self):
+        class Silent(FakeMind):
+            def ask(self, signal, **context): self.told.append((signal, context)); return None
+        self.b.mind = Silent()
+        self.hook("UserPromptSubmit", "a")
+        self.hook("PostToolUseFailure", "a")
+        self.assertEqual(self.b.mind.signals(), ["oops"])
+        self.assertIn("e oops", self.b.dev.sent)
+        self.hook("SessionEnd", "a")
+        self.b.last_active = self.clock()
+        self.clock.advance(bridge.IDLE_EVERY[1] + 1)
+        with mock.patch.object(bridge.threading, "Thread") as thread:
+            self.b.clip_tick(self.clock())
+        self.assertIn(thread.call_args.kwargs["args"][0], bridge.FIDGETS)   # Lump's fidget, as before
+
+
+@unittest.skipUnless(bridge.node_path(), "no node to run Sage's mind")
+class MindProcess(unittest.TestCase):
+    """The real process: the bridge's side of the protocol, and what it does when the mind stops, stalls or is missing."""
+    SAGE_BIN = os.path.join(bridge.ROOT, "firmware", "data", "sage.bin")
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp(prefix="deskbuddy-mind-")
+        self.minds = []
+
+    def tearDown(self):
+        for m in self.minds:
+            m.stop()
+
+    def mind(self, **kw):
+        m = bridge.Mind(**kw)
+        self.minds.append(m)
+        return m
+
+    def script(self, body, protocol=bridge.MIND_PROTOCOL):
+        """A stand-in for the mind: answers the art, then does what body says with each signal s."""
+        path = os.path.join(self.dir, "mind.mjs")
+        with open(path, "w") as f:
+            f.write("import { createInterface } from 'node:readline';\n"
+                    "const say = (a) => process.stdout.write(JSON.stringify(a) + '\\n');\n"
+                    "createInterface({ input: process.stdin }).on('line', (l) => { const s = JSON.parse(l);\n"
+                    "  if (s.signal === 'art') return say({ id: s.id, protocol: %d, acts: 1, why: 'a stand-in' });\n" % protocol + body + "\n});\n")
+        return path
+
+    def ready(self, m, secs=5):
+        end = time.time() + secs
+        while time.time() < end and not m.ready:
+            time.sleep(0.01)
+        return m.ready
+
+    def test_the_real_mind_reads_the_art_and_answers(self):
+        m = self.mind(art=self.SAGE_BIN)
+        self.assertTrue(self.ready(m))
+        self.assertEqual(m.acts, 31)
+        self.assertEqual(m.ask("tap", mood="idle", battery=0.5)["play"], "tap_hello")
+        d = m.ask("tests", ok=False, mood="working")
+        self.assertIn(d["play"], ("work_tests_fail", "glyph_glitch"))
+        self.assertIn("played 0 s ago", m.ask("tests", ok=False, mood="working")["why"])     # its cooldown
+        self.assertIn("busy with", m.ask("tap", mood="idle")["why"])                        # work comes first
+
+    def test_without_node_it_is_carried_on_without_and_said_once(self):
+        with mock.patch.object(bridge.log, "info") as info:
+            m = self.mind(art=self.SAGE_BIN, node=os.path.join(self.dir, "no-node"))
+            m.retry_at = 0
+            m.keep_alive(); m.retry_at = 0; m.keep_alive()
+        self.assertFalse(m.ready)
+        self.assertIsNone(m.ask("tap"))
+        self.assertEqual([c.args[1] for c in info.call_args_list], ["no node to run it"])
+
+    def test_one_that_stops_is_started_again_after_a_wait(self):
+        clock = Clock(NOON)
+        with mock.patch.object(bridge.time, "time", clock), mock.patch.object(bridge.log, "info") as info:
+            m = self.mind(art="x", script=self.script("process.exit(3);"))
+            self.assertTrue(self.ready(m))
+            self.assertIsNone(m.ask("tap"))                      # it stopped on the way
+            end = time.time() + 5
+            while m.proc is not None and time.time() < end: time.sleep(0.01)
+            self.assertIsNone(m.proc)
+            self.assertGreater(m.retry_at, clock())
+            m.keep_alive()
+            self.assertIsNone(m.proc)                            # not before its wait is over
+            clock.advance(bridge.MIND_RETRY[0] + 0.1)
+            m.keep_alive()
+            self.assertTrue(self.ready(m))
+        said = [c.args[1] for c in info.call_args_list if c.args[0].startswith("mind: %s: carrying")]
+        self.assertEqual(said, ["it stopped (exit 3)"])
+        self.assertEqual(m.wait, bridge.MIND_RETRY[0])              # ready again: the next wait starts short
+
+    def test_one_that_speaks_another_protocol_is_not_trusted(self):
+        with mock.patch.object(bridge.log, "info") as info:
+            m = self.mind(art="x", script=self.script("say({ id: s.id, play: 'hello', why: 'x' });", protocol=2))
+            end = time.time() + 5
+            while time.time() < end and not info.call_args_list: time.sleep(0.01)
+        self.assertFalse(m.ready)
+        self.assertIsNone(m.ask("hello"))
+        self.assertIn("it speaks protocol 2, the bridge 1", [c.args[1] for c in info.call_args_list if len(c.args) > 1])
+
+    def test_the_contract_every_signal_the_bridge_sends_is_the_minds_and_documented(self):
+        kinds = {k for _, good, bad in bridge.COMMANDS for k in (good, bad) if k} | {"big_diff"}
+        self.assertLessEqual(kinds, set(bridge.MIND_SIGNALS))
+        with open(os.path.join(bridge.ROOT, "mind", "README.md")) as f:
+            readme = f.read()
+        self.assertIn(f"protocol {bridge.MIND_PROTOCOL})", readme)
+        m = self.mind(art=self.SAGE_BIN)
+        self.assertTrue(self.ready(m))
+        for signal in bridge.MIND_SIGNALS:
+            self.assertIn(f"`{signal}`", readme, signal)
+            a = m.ask(signal, mood="idle", ok=True, busy=False, around=True, late=False, battery=0.5)
+            self.assertNotEqual(a.get("why"), "not a signal it knows", signal)
+            self.assertLessEqual(set(a), {"play", "why"}, signal)
+
+    def test_one_too_slow_is_not_waited_for_and_is_started_again(self):
+        m = self.mind(art="x", script=self.script("/* never answers */"), answer=0.05)
+        self.assertTrue(self.ready(m))
+        t = time.time()
+        for _ in range(3):
+            self.assertIsNone(m.ask("tap"))
+        self.assertLess(time.time() - t, 1)
+        self.assertIsNone(m.proc)                                # stuck: stopped, to be started again later
+        self.assertGreater(m.retry_at, 0)
+
+    def test_the_bridge_carries_on_when_the_mind_dies_in_a_hook(self):
+        m = self.mind(art="x", script=self.script("process.exit(1);"))
+        self.assertTrue(self.ready(m))
+        clock = Clock(NOON)
+        with mock.patch.object(bridge.time, "time", clock):
+            b = bridge.Buddy(dev=FakeDevice(), focus=FakeFocus(), sounds=FakeSounds(), start=False, mind=m)
+            b.hook({"hook_event_name": "UserPromptSubmit", "session_id": "a"})
+            b.hook({"hook_event_name": "PostToolUseFailure", "session_id": "a"})
+        self.assertIn("e oops", b.dev.sent)
+
 if __name__ == "__main__":
     unittest.main()
