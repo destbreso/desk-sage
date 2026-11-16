@@ -12,19 +12,19 @@ What is here:
 
 ## Gallery
 
-Sage as the board will show it, each animation played through the same bake that writes its frames for the board (`tools/export_frames.py --gif`). On the prism the black around it is glass, so it seems to float. Things come into its world for what is happening, and the camera moves round it.
+Sage as the board will show it, each animation played through the same bake that writes its frames for the board (`tools/export_frames.py --gif`). On the prism the black around it is glass, so it seems to float. Everything in its world is made for it, never a stock picture: what comes in for what is happening is the site's own (its prompt, the Game of Life's glider, the rain) or Sage's own (its modules, the room's phone), and the camera moves round it in a small 3D world.
 
 ### Every day
 
 <table>
 <tr><td align="center"><img src="gallery/sage/fidget_turn.gif" width="200" alt="Turning round on the spot"><br><sub>Turning round on the spot</sub></td><td align="center"><img src="gallery/sage/idle.gif" width="200" alt="Waiting for something to happen"><br><sub>Waiting for something to happen</sub></td><td align="center"><img src="gallery/sage/working.gif" width="200" alt="Reading while Claude works"><br><sub>Reading while Claude works</sub></td><td align="center"><img src="gallery/sage/alert.gif" width="200" alt="Something needs you"><br><sub>Something needs you</sub></td></tr>
-<tr><td align="center"><img src="gallery/sage/night.gif" width="200" alt="Asleep at night"><br><sub>Asleep at night</sub></td><td align="center"><img src="gallery/sage/done_hearts.gif" width="200" alt="A long job done"><br><sub>A long job done</sub></td><td align="center"><img src="gallery/sage/fidget_mark.gif" width="200" alt="The site's prompt on its face"><br><sub>The site's prompt on its face</sub></td><td align="center"><img src="gallery/sage/fidget_look.gif" width="200" alt="A look over its shoulder"><br><sub>A look over its shoulder</sub></td></tr>
+<tr><td align="center"><img src="gallery/sage/night.gif" width="200" alt="Asleep at night"><br><sub>Asleep at night</sub></td><td align="center"><img src="gallery/sage/done_glider.gif" width="200" alt="A long job done: a glider crosses its visor"><br><sub>A long job done: a glider crosses its visor</sub></td><td align="center"><img src="gallery/sage/fidget_mark.gif" width="200" alt="The site's prompt on its face"><br><sub>The site's prompt on its face</sub></td><td align="center"><img src="gallery/sage/fidget_look.gif" width="200" alt="A look over its shoulder"><br><sub>A look over its shoulder</sub></td></tr>
 </table>
 
 ### What I am doing
 
 <table>
-<tr><td align="center"><img src="gallery/sage/work_tests_fail.gif" width="200" alt="Tests fail: a bug runs in, and it stomps it"><br><sub>Tests fail: a bug runs in, and it stomps it</sub></td><td align="center"><img src="gallery/sage/work_deploy.gif" width="200" alt="A deploy: its visor fills, the rocket lifts off"><br><sub>A deploy: its visor fills, the rocket lifts off</sub></td><td align="center"><img src="gallery/sage/work_build.gif" width="200" alt="A build: crates land on the pile"><br><sub>A build: crates land on the pile</sub></td></tr>
+<tr><td align="center"><img src="gallery/sage/work_tests_fail.gif" width="200" alt="Tests fail: a glitch scuttles in, and it stomps it"><br><sub>Tests fail: a glitch scuttles in, and it stomps it</sub></td><td align="center"><img src="gallery/sage/work_deploy.gif" width="200" alt="A deploy: the site's prompt takes off"><br><sub>A deploy: the site's prompt takes off</sub></td><td align="center"><img src="gallery/sage/work_build.gif" width="200" alt="A build: its own modules land on the pile"><br><sub>A build: its own modules land on the pile</sub></td></tr>
 </table>
 
 ### The camera

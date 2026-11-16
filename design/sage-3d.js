@@ -126,9 +126,11 @@
       let ext = 0; for (const [x, y] of hl) ext = Math.max(ext, Math.hypot(x - cx, y - cy));
       const ax = cx + (lc[0] / lm) * (ext + r * kMid) * 0.42, ay = cy - (lc[1] / lm) * (ext + r * kMid) * 0.42;
       roundedHull(g, outline, r * kMid); g.fillStyle = b.tones[0]; g.fill();
-      g.save(); roundedHull(g, outline, r * kMid); g.clip();
-      const n = b.tones.length;
-      for (let i = 1; i < n; i++) { const sF = 1 - (i / n) * 0.62; roundedHull(g, outline.map(([x, y]) => [ax + (x - ax) * sF, ay + (y - ay) * sF]), r * kMid * sF); g.fillStyle = b.tones[i]; g.fill(); }
+      // (the steps shrink toward a point inside it, so they never leave the outline: no clip needed)
+      g.save();
+      // (four steps on a large part, two on a small one: each step is the whole outline again, and bytes on the board)
+      const n = b.tones.length, steps = b.steps ?? (Math.max(W, H, D) >= 30 ? 4 : 2);
+      for (let i = 1; i <= steps; i++) { const ti = Math.round((i * (n - 1)) / steps), sF = 1 - (i / (steps + 1)) * 0.62; roundedHull(g, outline.map(([x, y]) => [ax + (x - ax) * sF, ay + (y - ay) * sF]), r * kMid * sF); g.fillStyle = b.tones[ti]; g.fill(); }
       if ((b.spec ?? 0.5) > 0) { g.globalAlpha = (b.spec ?? 0.5) * 0.8; g.fillStyle = "#ffffff"; g.beginPath(); g.ellipse(ax + (cx - ax) * 0.25, ay + (cy - ay) * 0.25, Math.max(1, ext * 0.22), Math.max(1, ext * 0.07), Math.atan2(cy - ay, cx - ax) + Math.PI / 2, 0, Math.PI * 2); g.fill(); g.globalAlpha = 1; }
       g.restore();
       // each face that shows: its plane marked only by a little shade when it turns from the light, then what is on it
@@ -141,9 +143,7 @@
         const lit = Math.max(0, dot(nw, LIGHT));
         if (lit < 0.6) {
           const q = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([a, bb]) => cam.at(add(c0, add(scl(uw, a * iw), scl(vw, bb * ih)))));
-          g.save(); roundedHull(g, outline, r * kMid); g.clip();
-          g.beginPath(); q.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y))); g.closePath(); g.globalAlpha = (0.6 - lit) * 0.38; g.fillStyle = "#000000"; g.fill();
-          g.restore();
+          g.beginPath(); q.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y))); g.closePath(); g.globalAlpha = (0.6 - lit) * 0.38; g.fillStyle = "#000000"; g.fill(); g.globalAlpha = 1;
         }
         const paint = b.faces && b.faces[name];
         if (paint) {
@@ -155,11 +155,12 @@
         }
       }
       // the prism's own light on the far rim
-      if ((b.rimA ?? 0.3) > 0) { g.save(); roundedHull(g, pts.map((p) => [p[0], p[1]]), r * kMid); g.clip(); g.globalAlpha = b.rimA ?? 0.3; g.strokeStyle = "#cfe8d6"; g.lineWidth = Math.max(1, 1.2 * kMid); roundedHull(g, pts.map((p) => [p[0] + 1.2 * kMid, p[1] + 1.2 * kMid]), r * kMid); g.stroke(); g.restore(); }
+      if ((b.rimA ?? (Math.max(W, H, D) >= 30 ? 0.3 : 0)) > 0) { g.save(); roundedHull(g, pts.map((p) => [p[0], p[1]]), r * kMid); g.clip(); g.globalAlpha = b.rimA ?? 0.3; g.strokeStyle = "#cfe8d6"; g.lineWidth = Math.max(1, 1.2 * kMid); roundedHull(g, pts.map((p) => [p[0] + 1.2 * kMid, p[1] + 1.2 * kMid]), r * kMid); g.stroke(); g.restore(); }
     },
     ball(g, cam, b) {
       const p = cam.at(b.f.at(b.c || [0, 0, 0])), l = cam.dir(LIGHT), m = Math.hypot(l[0], l[1]) || 1;
-      ball(g, p[0], p[1], b.R * p[3] * (b.scale ?? 1), b.tones, b.spec ?? 0.5, (l[0] / m) * 0.8, (-l[1] / m) * 0.8);
+      const tn = b.tones, few = [tn[0], tn[Math.floor((tn.length - 1) / 2)], tn[tn.length - 1]];
+      ball(g, p[0], p[1], b.R * p[3] * (b.scale ?? 1), few, b.spec ?? 0.5, (l[0] / m) * 0.8, (-l[1] / m) * 0.8);
     },
     disc(g, cam, d) {
       // a circle in the frame's y-z plane is an ellipse on the screen: drawn as the unit circle through its exact map

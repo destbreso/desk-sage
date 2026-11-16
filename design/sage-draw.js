@@ -11,8 +11,8 @@
   const ramp = (dark, lit, n) => Array.from({ length: n }, (_, i) => mixc(dark, lit, i / (n - 1)));
   // Tones for the prism: black turns to glass, so the graphite and rubber are lifted from the room's or they vanish.
   const SHELL = ramp("#a99f8d", "#fbf8f1", 8), GRAPH = ramp("#33363c", "#8a8f98", 6), RUBBER = ramp("#1f2124", "#55585e", 5);
-  const ANT = ramp("#4f8a4b", "#d8f7d2", 4), PAPER = ramp("#bdb3a0", "#f6f1e6", 4), PAD = ramp("#24312a", "#4a6656", 4);
-  const T = { green: SAGE_GREEN, heart: "#ff6f8e", ink: "#8f8676", seam: "#8f8676", hole: "#16181b", holeLit: "#7d828b", screw: "#9aa0a8", hub: "#b9bdc4", tread: "#17181a", rim: "#cfe8d6" };
+  const AMBER = ramp("#8a5a1a", "#ffe1a8", 4), ANT = ramp("#4f8a4b", "#d8f7d2", 4), PAPER = ramp("#bdb3a0", "#f6f1e6", 4), PAD = ramp("#24312a", "#4a6656", 4);
+  const T = { green: SAGE_GREEN, amber: "#ffb347", ink: "#8f8676", seam: "#8f8676", hole: "#16181b", holeLit: "#7d828b", screw: "#9aa0a8", hub: "#b9bdc4", tread: "#17181a", rim: "#cfe8d6" };
 
   // The camera: `z` 0 shows the whole of it, 1 its head close.
   const CAM = { body: { k: 1.42, x: 120, y: 228 }, close: { k: 2.3, x: 120, y: 368 } };
@@ -21,9 +21,10 @@
   /** A pose: everything a drawing of Sage can set, in millimetres and radians. */
   const POSE = {
     z: 0, x: 0, depth: 0, lift: 0, crouch: 0, lean: 0, roll: 0, nod: 0, foot: 0, yaw: 0, headYaw: 0, wheel: 0,
-    tilt: 0, orbit: 0, zoom: 1, camX: 0, camY: 0, things: null, bar: 0, footSide: 1, squash: 0, antennaBend: 0, bow: 0,
+    // (a camera a little above it by default, so the desk and what lies on it read)
+    tilt: 0.12, orbit: 0, zoom: 1, camX: 0, camY: 0, things: null, bar: 0, footSide: 1, squash: 0, antennaBend: 0, bow: 0,
     mood: "calm", look: [0, 0], shut: 0, squeezed: false, eyes: null, antenna: 0.7,
-    book: 0, page: 0, light: 0, letter: null, zz: 0, sweat: 0, alert: 0, dnd: 0, hearts: 0, charger: 0, spark: 0,
+    book: 0, page: 0, light: 0, charger: 0, signal: 0, rise: 0, burst: 0, amber: false,
   };
 
   /**
@@ -103,35 +104,67 @@
   }
   /** The glow the room gets from a blur, as three larger, fainter copies behind the thing itself. */
   function glow(g, cx, cy, draw) {
-    for (const [grow, a] of [[0.2, 0.07], [0.12, 0.12], [0.05, 0.2]]) { g.save(); g.globalAlpha = a; g.translate(cx, cy); g.scale(1 + grow, 1 + grow); g.translate(-cx, -cy); draw(); g.restore(); }
+    for (const [grow, a] of [[0.16, 0.09], [0.07, 0.18]]) { g.save(); g.globalAlpha = a; g.translate(cx, cy); g.scale(1 + grow, 1 + grow); g.translate(-cx, -cy); draw(); g.restore(); }
     draw();
   }
 
-  // Eyes the website's face does not draw: hearts, dizzy spirals, the website's mark.
-  function heart(g, cx, cy, s) {
-    g.beginPath(); g.moveTo(cx, cy + s * 0.9);
-    g.bezierCurveTo(cx - s * 1.5, cy - s * 0.1, cx - s * 0.7, cy - s * 1.25, cx, cy - s * 0.45);
-    g.bezierCurveTo(cx + s * 0.7, cy - s * 1.25, cx + s * 1.5, cy - s * 0.1, cx, cy + s * 0.9);
-    g.closePath(); g.fill();
-  }
+  // What its visor shows besides its eyes, all its own: a glider of the Game of Life crossing it (all is well), a
+  // block of cells breaking into amber (something failed), cells lighting one by one (progress), a slow wave (asleep),
+  // a shutter down (do not disturb), dizzy spirals, the website's prompt.
+  const GLIDER = [[[1, 0], [2, 1], [0, 2], [1, 2], [2, 2]], [[0, 1], [2, 1], [1, 2], [2, 2], [1, 3]], [[2, 1], [0, 2], [2, 2], [1, 3], [2, 3]], [[1, 1], [2, 2], [3, 2], [1, 3], [2, 3]]];
+  function cell(g, x, y, s) { rr(g, x + s * 0.08, y + s * 0.08, s * 0.84, s * 0.84, s * 0.22); g.fill(); }
   function special(g, x, y, w, h, eyes, t, bar = 0) {
     g.fillStyle = "#000000"; rr(g, x, y, w, h, h * 0.24); g.fill();
-    const cy = y + h / 2, ex = [x + w * 0.3, x + w * 0.7], s = h * 0.17;
-    g.fillStyle = g.strokeStyle = eyes === "hearts" ? T.heart : T.green;
-    g.lineCap = "round"; g.lineJoin = "round"; g.lineWidth = Math.max(2, h * 0.07);
-    if (eyes === "hearts") for (const cx of ex) heart(g, cx, cy + s * 0.1, s * (1 + 0.08 * Math.sin(t * 0.9)));
-    else if (eyes === "dizzy") for (const cx of ex) { g.beginPath(); for (let a = 0; a < Math.PI * 4; a += 0.35) { const r = s * (0.15 + a / (Math.PI * 4)), aa = a + t * 0.6; a === 0 ? g.moveTo(cx + r * Math.cos(aa), cy + r * Math.sin(aa)) : g.lineTo(cx + r * Math.cos(aa), cy + r * Math.sin(aa)); } g.stroke(); }
+    const cy = y + h / 2, s = h * 0.13;
+    g.fillStyle = g.strokeStyle = T.green; g.lineCap = "round"; g.lineJoin = "round"; g.lineWidth = Math.max(0.8, h * 0.06);
+    if (eyes === "glider") {
+      // its four phases, one cell further down and across every four
+      const ph = Math.floor(t / 4) % 4, step = Math.floor(t / 16) % 6, ox = x + w * 0.2 + step * s, oy = y + h * 0.08 + step * s * 0.5;
+      g.save(); rr(g, x, y, w, h, h * 0.24); g.clip(); for (const [cx, cyy] of GLIDER[ph]) cell(g, ox + cx * s, oy + cyy * s, s); g.restore();
+    } else if (eyes === "ash") {
+      // a block that comes apart: its cells drifting out, one going amber
+      const u = (t % 48) / 48;
+      [[-1, -1], [0, -1], [-1, 0], [0, 0]].forEach(([dx, dy], i) => { g.globalAlpha = 1 - u * 0.7; g.fillStyle = i === 3 ? T.amber : T.green; cell(g, x + w / 2 + (dx + 0.5 * (dx + 0.5) * u * 4) * s - s / 2, cy + (dy + 0.5 * (dy + 0.5) * u * 4) * s - s / 2, s); });
+      g.globalAlpha = 1;
+    } else if (eyes === "cells") {
+      // a row of ten cells lit one by one as it goes
+      for (let i = 0; i < 10; i++) { g.globalAlpha = i < Math.round(bar * 10) ? 1 : 0.18; cell(g, x + w * 0.1 + i * (w * 0.8 / 10), cy - (w * 0.8 / 10) / 2, w * 0.8 / 10); }
+      g.globalAlpha = 1;
+    } else if (eyes === "sleep") {
+      // asleep: its eyes a slow wave, rising and falling as it breathes
+      g.globalAlpha = 0.85; g.beginPath();
+      for (let i = 0; i <= 24; i++) { const px = x + w * (0.18 + 0.64 * i / 24), py = cy + Math.sin(i / 24 * Math.PI * 2 + t / 12) * h * 0.06; i ? g.lineTo(px, py) : g.moveTo(px, py); }
+      g.stroke(); g.globalAlpha = 1;
+    } else if (eyes === "shutter") {
+      // do not disturb: closed eyes, and a graphite shutter lowered over the top of its visor
+      for (const cx of [x + w * 0.3, x + w * 0.7]) { g.beginPath(); g.moveTo(cx - w * 0.08, cy + h * 0.08); g.lineTo(cx + w * 0.08, cy + h * 0.08); g.stroke(); }
+      g.save(); rr(g, x, y, w, h, h * 0.24); g.clip(); g.fillStyle = GRAPH[1]; g.fillRect(x, y, w, h * 0.46);
+      g.strokeStyle = GRAPH[3]; g.lineWidth = Math.max(0.6, h * 0.02); for (let i = 1; i < 4; i++) { g.beginPath(); g.moveTo(x, y + h * 0.115 * i); g.lineTo(x + w, y + h * 0.115 * i); g.stroke(); } g.restore();
+    } else if (eyes === "dizzy") for (const cx of [x + w * 0.3, x + w * 0.7]) { g.beginPath(); for (let a = 0; a < Math.PI * 4; a += 0.35) { const r = h * 0.17 * (0.15 + a / (Math.PI * 4)), aa = a + t * 0.6; a === 0 ? g.moveTo(cx + r * Math.cos(aa), cy + r * Math.sin(aa)) : g.lineTo(cx + r * Math.cos(aa), cy + r * Math.sin(aa)); } g.stroke(); }
     else if (eyes === "mark") {
       // the website's prompt, >_, its cursor blinking
       g.beginPath(); g.moveTo(x + w * 0.27, cy - h * 0.2); g.lineTo(x + w * 0.45, cy); g.lineTo(x + w * 0.27, cy + h * 0.2); g.stroke();
       if (Math.floor(t / 12) % 2 === 0) { g.beginPath(); g.moveTo(x + w * 0.52, cy + h * 0.2); g.lineTo(x + w * 0.74, cy + h * 0.2); g.stroke(); }
-    } else if (eyes === "bar") {
-      // a progress bar across its visor, filling to `bar`
-      g.globalAlpha = 0.35; rr(g, x + w * 0.16, cy - h * 0.09, w * 0.68, h * 0.18, h * 0.09); g.fill(); g.globalAlpha = 1;
-      if (bar > 0) { rr(g, x + w * 0.16, cy - h * 0.09, Math.max(h * 0.18, w * 0.68 * Math.min(1, bar)), h * 0.18, h * 0.09); g.fill(); }
-    } else if (eyes === "check") { g.lineWidth = Math.max(2, h * 0.1); g.beginPath(); g.moveTo(x + w * 0.32, cy); g.lineTo(x + w * 0.45, cy + h * 0.16); g.lineTo(x + w * 0.7, cy - h * 0.2); g.stroke(); }
-    else if (eyes === "cross") { g.strokeStyle = "#ff6b6b"; g.lineWidth = Math.max(2, h * 0.1); g.beginPath(); g.moveTo(x + w * 0.38, cy - h * 0.18); g.lineTo(x + w * 0.62, cy + h * 0.18); g.moveTo(x + w * 0.62, cy - h * 0.18); g.lineTo(x + w * 0.38, cy + h * 0.18); g.stroke(); }
-    else if (eyes === "x") for (const cx of ex) { g.beginPath(); g.moveTo(cx - s * 0.7, cy - s * 0.7); g.lineTo(cx + s * 0.7, cy + s * 0.7); g.moveTo(cx + s * 0.7, cy - s * 0.7); g.lineTo(cx - s * 0.7, cy + s * 0.7); g.stroke(); }
+    }
+  }
+  // Marks in the air, all its own, in screen pixels at a point of the world (k pixels a millimetre there).
+  /** rings of signal leaving its antenna, for when it is needed */
+  function signal(g, x, y, k, u, tone) {
+    g.lineCap = "round"; g.strokeStyle = tone;
+    for (let i = 0; i < 3; i++) { const v = (u + i / 3) % 1; g.globalAlpha = (1 - v) * 0.8; g.lineWidth = Math.max(1, 0.8 * k); g.beginPath(); g.arc(x, y, (3 + 10 * v) * k, -Math.PI * 0.85, -Math.PI * 0.15); g.stroke(); }
+    g.globalAlpha = 1;
+  }
+  /** cells of its green rising from its antenna, for joy */
+  function rise(g, x, y, k, u) {
+    g.fillStyle = T.green;
+    for (let i = 0; i < 5; i++) { const v = (u + i / 5) % 1, cx = x + Math.sin(i * 2.4 + v * 5) * 7 * k, cyy = y - 26 * v * k, s = (2.2 - v) * k; g.globalAlpha = Math.sin(Math.PI * v); cell(g, cx - s / 2, cyy - s / 2, s); }
+    g.globalAlpha = 1;
+  }
+  /** a burst of cells, flying out and fading */
+  function burst(g, x, y, k, u) {
+    g.fillStyle = T.green;
+    for (let i = 0; i < 6; i++) { const a = (i / 6) * Math.PI * 2 + 0.3, r = (3 + 9 * u) * k, s = 2 * (1 - u) * k + 0.5; g.globalAlpha = 1 - u; cell(g, x + Math.cos(a) * r - s / 2, y + Math.sin(a) * r - s / 2, s); }
+    g.globalAlpha = 1;
   }
 
   // Props, in millimetres from the floor.
@@ -149,50 +182,6 @@
     g.save(); g.globalAlpha = 0.17 * p.light; g.fillStyle = T.green;
     g.beginPath(); g.moveTo(faceX - 14 * k, faceY); g.lineTo(faceX + 14 * k, faceY); g.lineTo(X(19), Y(5)); g.lineTo(X(-19), Y(5)); g.closePath(); g.fill(); g.restore();
   }
-  function letter(g, cx, cy, k, rot) {
-    g.save(); g.translate(cx, cy); g.rotate(rot);
-    shaded(g, -11 * k, -7.5 * k, 22 * k, 15 * k, 1.6 * k, PAPER, { spec: 0.2, rimA: 0.2 });
-    g.strokeStyle = "#b3a993"; g.lineWidth = Math.max(1, 1.1 * k); g.lineJoin = "round";
-    g.beginPath(); g.moveTo(-10 * k, -6.5 * k); g.lineTo(0, 1.5 * k); g.lineTo(10 * k, -6.5 * k); g.stroke();
-    glow(g, 0, 1.5 * k, () => { g.fillStyle = T.green; g.beginPath(); g.arc(0, 1.5 * k, 2 * k, 0, Math.PI * 2); g.fill(); });
-    g.restore();
-  }
-  function zz(g, x, y, k, u) {
-    // three z's rising and fading, drawn as strokes
-    g.strokeStyle = T.green; g.lineCap = "round"; g.lineJoin = "round";
-    for (let i = 0; i < 3; i++) {
-      const v = (u + i / 3) % 1, s = (3 + 3 * v) * k, zx = x + 10 * v * k, zy = y - 26 * v * k;
-      g.save(); g.globalAlpha = Math.sin(Math.PI * v) * 0.9; g.lineWidth = Math.max(1, 0.9 * k);
-      g.beginPath(); g.moveTo(zx, zy); g.lineTo(zx + s, zy); g.lineTo(zx, zy + s); g.lineTo(zx + s, zy + s); g.stroke(); g.restore();
-    }
-  }
-  function sweat(g, x, y, k, u) {
-    g.save(); g.globalAlpha = 0.85; g.fillStyle = "#9fd6ff";
-    const yy = y + 6 * u * k;
-    g.beginPath(); g.moveTo(x, yy - 3.2 * k); g.quadraticCurveTo(x + 2.4 * k, yy, x, yy + 1.8 * k); g.quadraticCurveTo(x - 2.4 * k, yy, x, yy - 3.2 * k); g.fill();
-    g.globalAlpha = 0.7; g.fillStyle = "#ffffff"; g.beginPath(); g.arc(x - 0.7 * k, yy - 0.6 * k, 0.6 * k, 0, Math.PI * 2); g.fill(); g.restore();
-  }
-  function alertMark(g, x, y, k, u) {
-    g.save(); g.globalAlpha = u;
-    glow(g, x, y - 4 * k, () => { g.fillStyle = T.green; rr(g, x - 1.6 * k, y - 11 * k, 3.2 * k, 8 * k, 1.6 * k); g.fill(); g.beginPath(); g.arc(x, y + 0.5 * k, 1.8 * k, 0, Math.PI * 2); g.fill(); });
-    g.restore();
-  }
-  function dndSign(g, x, y, k, u) {
-    g.save(); g.globalAlpha = u;
-    ball(g, x, y, 6.5 * k, ramp("#a8283a", "#ff6b6b", 4), 0.35);
-    g.fillStyle = "#fff4f0"; rr(g, x - 4.2 * k, y - 1.2 * k, 8.4 * k, 2.4 * k, 1.2 * k); g.fill(); g.restore();
-  }
-  function floatingHearts(g, x, y, k, u) {
-    g.fillStyle = T.heart;
-    for (let i = 0; i < 3; i++) { const v = (u + i / 3) % 1; g.save(); g.globalAlpha = Math.sin(Math.PI * v); heart(g, x + (i - 1) * 9 * k + Math.sin(v * 6 + i) * 2 * k, y - 22 * v * k, (1.6 + v) * k); g.restore(); }
-  }
-  function spark(g, x, y, k, u) {
-    g.save(); g.globalAlpha = Math.sin(Math.PI * u); g.strokeStyle = T.green; g.lineCap = "round"; g.lineWidth = Math.max(1, 1 * k);
-    const r = (2 + 4 * u) * k;
-    for (let i = 0; i < 4; i++) { const a = (i * Math.PI) / 2 + Math.PI / 4; g.beginPath(); g.moveTo(x + Math.cos(a) * r * 0.4, y + Math.sin(a) * r * 0.4); g.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r); g.stroke(); }
-    g.restore();
-  }
-
   /** The camera a pose asks for: `z` from the whole of it (0) to its head close (1), `tilt` from above or below,
    *  `orbit` round it, `zoom` past either, aimed at the part of it that matters at that distance (`camX`, `camY` move
    *  the aim, in millimetres). */
@@ -288,18 +277,14 @@
       const b = up + p.antennaBend, tx = base[0] + Math.sin(b) * L, ty = base[1] - Math.cos(b) * L, mx = base[0] + Math.sin(up + p.antennaBend * 0.35) * L * 0.55, my = base[1] - Math.cos(up + p.antennaBend * 0.35) * L * 0.55, kk = base[3];
       gg.lineCap = "round"; gg.strokeStyle = GRAPH[2]; gg.lineWidth = Math.max(1.5, 2.4 * kk); gg.beginPath(); gg.moveTo(base[0], base[1]); gg.quadraticCurveTo(mx, my, tx, ty); gg.stroke();
       gg.strokeStyle = GRAPH[5]; gg.lineWidth = Math.max(1, 0.7 * kk); gg.beginPath(); gg.moveTo(base[0] - 0.6 * kk, base[1]); gg.quadraticCurveTo(mx - 0.6 * kk, my, tx - 0.6 * kk, ty); gg.stroke();
-      gg.save(); gg.globalAlpha = 0.35 + 0.65 * p.antenna; glow(gg, tx, ty, () => Sage3D.ball(gg, tx, ty, 2.8 * kk, ANT, 0.6)); gg.restore();
+      gg.save(); gg.globalAlpha = 0.35 + 0.65 * p.antenna; glow(gg, tx, ty, () => Sage3D.ball(gg, tx, ty, 2.8 * kk, p.amber ? AMBER : ANT, 0.6)); gg.restore();
     } });
 
     // marks in the air near its head, and things floating round it (drawn facing the camera)
     const mark = (pt, fn) => S.custom({ w: pt, bias: 200, draw(gg) { const [mx, my, , kk] = cam.at(pt); fn(gg, mx, my, kk); } });
-    if (p.sweat) mark(hpt(41, 50, 10), (gg, x, y, kk) => sweat(gg, x, y, kk, p.sweat));
-    if (p.alert) mark(hpt(-30, 74, 0), (gg, x, y, kk) => alertMark(gg, x, y, kk, p.alert));
-    if (p.dnd) mark(hpt(-26, 74, 0), (gg, x, y, kk) => dndSign(gg, x, y, kk, p.dnd));
-    if (p.letter) mark(root.at([p.letter[0], p.letter[1], 0]), (gg, x, y, kk) => letter(gg, x, y, kk, p.letter[2] || 0));
-    if (p.zz) mark(hpt(30, 70, 0), (gg, x, y, kk) => zz(gg, x, y, kk, p.zz));
-    if (p.hearts) mark(hpt(0, 76, 0), (gg, x, y, kk) => floatingHearts(gg, x, y, kk, p.hearts));
-    if (p.spark) mark(hpt(30, 70, 0), (gg, x, y, kk) => spark(gg, x, y, kk, p.spark));
+    if (p.signal) mark(hpt(22, 62 * hv + 18, -10), (gg, x, y, kk) => signal(gg, x, y, kk, p.signal, p.amber ? T.amber : T.green));
+    if (p.rise) mark(hpt(22, 62 * hv + 18, -10), (gg, x, y, kk) => rise(gg, x, y, kk, p.rise));
+    if (p.burst) mark(hpt(0, 70, 20), (gg, x, y, kk) => burst(gg, x, y, kk, p.burst));
 
     if (p.things && window.SageThings) SageThings.add(S, p.things, cam, t);
     if (extra) extra(S, { root, head, cam, p, t });
