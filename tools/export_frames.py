@@ -14,6 +14,9 @@
                                                           # existing drawings: {"encore": {"home": "idle", "seq": [["S1", 4], ...]}}
     python3 tools/export_frames.py 8767                   # serve design/ for editing; run EXPORT_JS in the
                                                           # page's console to bake from your own browser
+    python3 tools/export_frames.py --bake --page emulator/testcard/index.html --out emulator/testcard/testcard.bin
+                                                          # bake another page with the same interface (served
+                                                          # from its own folder)
 
 The page posts its mood/sequence list to /meta, then every 24 fps frame of every sequence: the
 picture (raw RGBA) and the canvas calls that drew it. Identical frames are stored once. Each frame
@@ -36,6 +39,7 @@ from urllib.parse import urlparse, parse_qs
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DESIGN = os.path.join(ROOT, "design")
+PAGE = os.path.join(DESIGN, "lump.html")          # the page baked from (--page names another)
 OUT = os.path.join(ROOT, "firmware", "data", "lump.bin")
 KIT = os.path.join(DESIGN, "clip_kit.js")          # props and helpers every clip script may use
 CLIPS = os.path.expanduser("~/.desk-buddy/clips")
@@ -341,7 +345,7 @@ class H(http.server.SimpleHTTPRequestHandler):
     page = None                                    # headless: the page to serve at /, with the export script added
 
     def __init__(self, *a, **k):
-        super().__init__(*a, directory=DESIGN, **k)
+        super().__init__(*a, directory=os.path.dirname(PAGE), **k)
 
     def log_message(self, *a):
         pass
@@ -375,7 +379,7 @@ class H(http.server.SimpleHTTPRequestHandler):
 def headless(config, scripts=()):
     """Run the export in headless Chrome (after any clip scripts) and wait for it to finish."""
     report = "<script>addEventListener('error', e => fetch('/error', { method: 'POST', body: e.message + ' (line ' + e.lineno + ')' }));</script>"
-    page = open(os.path.join(DESIGN, "lump.html")).read() + report + "".join(f"<script>{open(p).read()}</script>" for p in scripts)
+    page = open(PAGE).read() + report + "".join(f"<script>{open(p).read()}</script>" for p in scripts)
     H.page = (page + f"<script>window.__lumpExport = {json.dumps(config)};{EXPORT_JS}</script>").encode()
     done.clear(); result.clear()
     s = socket.socket(); s.bind(("127.0.0.1", 0)); port = s.getsockname()[1]; s.close()
@@ -401,7 +405,9 @@ if __name__ == "__main__":
     ap.add_argument("--gif", metavar="GIF", help="with --clip: save it as an animated GIF instead of baking")
     ap.add_argument("--define", metavar="JSON", help="a file of extra sequences made from existing drawings")
     ap.add_argument("--out", help="where to write (default: lump.bin, or ~/.desk-buddy/clips/NAME.clip)")
+    ap.add_argument("--page", help="the page to bake from, with the same interface (default: design/lump.html)")
     args = ap.parse_args()
+    if args.page: PAGE = os.path.abspath(args.page)
     if args.clip:
         source = lambda n: os.path.join(DESIGN, "clips", n + ".js")
         names = sorted(os.path.basename(p)[:-3] for p in glob.glob(source("*"))) if args.clip == "all" else [args.clip]
@@ -415,5 +421,5 @@ if __name__ == "__main__":
         if args.out: out_path = args.out
         headless({})
     else:
-        print(f"serving {DESIGN} on http://localhost:{args.port}", flush=True)
+        print(f"serving {os.path.dirname(PAGE)} on http://localhost:{args.port}", flush=True)
         http.server.ThreadingHTTPServer(("127.0.0.1", args.port), H).serve_forever()
