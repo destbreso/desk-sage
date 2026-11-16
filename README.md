@@ -8,6 +8,7 @@ What is here:
 - **The firmware** for the Waveshare ESP32-S3-LCD-1.3 prism (240 by 240 pixels, with a motion sensor that feels a tap). It renders each frame from drawing instructions, about a kilobyte or a few a frame, and the frames made of glyphs from an atlas of them, about 2 KB a frame, so a lot of animation fits, and it takes new clips over Wi-Fi without being flashed again.
 - **The bridge** on the Mac (`tools/buddy_bridge.py`), which hears Claude Code's hooks and what the terminal runs, picks how Sage should react, and tells the board over USB or Wi-Fi.
 - **The emulator** (`emulator/`), a web page that plays the frames exactly as the board does and plugs into the bridge as if it were the board, so everything can be built and tried before the hardware is on the desk.
+- **How to build one** ([docs/BUILD.md](docs/BUILD.md)): what to buy, where, and what it costs (about US$27 for the device), and how it goes together.
 - **The tools** that bake drawings into frames, check each frame against the browser's own drawing (`tools/vec_check.cpp`), update the board over the air, and print the enclosure.
 
 ## Gallery
