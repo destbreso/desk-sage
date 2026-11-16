@@ -72,6 +72,10 @@
   act("tap_hello", 36, (t) => ({ mood: "happy", lift: round(Math.max(0, Math.sin((Math.PI * t) / 18)) * 4, 0.5), roll: t < 18 ? 0.06 : -0.04, antenna: 1 }));
   act("tap_dizzy", 72, (t) => ({ eyes: "dizzy", roll: round(Math.sin(t / 4) * 0.12, 0.01), antenna: t % 6 < 3 ? 1 : 0.3 }));
   act("done_hearts", 72, (t) => ({ eyes: "hearts", hearts: round((t % 48) / 48, 1 / 24), antenna: 1 }));
+  // a turn on the spot, all the way round and back to you, pleased with itself
+  act("fidget_turn", 96, (t) => ({ yaw: round(((2 * Math.PI) * (t < 84 ? t / 84 : 1)) % (2 * Math.PI), 0.02), mood: t > 84 ? "happy" : "calm", wheel: round(t * 0.2, 0.1), antenna: t > 84 ? 1 : 0.7 }), 1);
+  // a look over one shoulder, then the other, its body still
+  act("fidget_look", 96, (t) => ({ headYaw: t < 30 ? round(-0.9 * Math.min(1, t / 10), 0.05) : t < 60 ? round(-0.9 + 1.8 * Math.min(1, (t - 30) / 12), 0.05) : round(0.9 * Math.max(0, 1 - (t - 60) / 12), 0.05), look: [0, -0.2] }), 2);
 
   // ── the interface the bake reads (tools/export_frames.py) ──
   const SEQ = (k) => LOOPS[k] || TRANS[k] || (CLIPS[k] && CLIPS[k].seq);
