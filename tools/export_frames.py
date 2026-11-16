@@ -27,10 +27,13 @@ rendered alone in the state it was drawn in. Identical frames are stored once. E
 as drawing instructions (about a kilobyte, drawn on the board by firmware/src/vec.h) when that
 renderer reproduces the browser's picture closely enough; a frame that is only a background fill
 and text (fillText with fillStyle and globalAlpha) as a glyph frame (about 2 KB, drawn by
-firmware/src/glyphs.h) when that reproduces it; and as pixels otherwise.
+firmware/src/glyphs.h) when that reproduces it; and as pixels otherwise. Then each frame is stored compressed
+(raw deflate, inflated on the board by the tinfl in the ESP32-S3's ROM, through firmware/src/packed.h) when that is
+smaller, most of them right after a keyframe whose bytes they reach back into; tools/pack_check.cpp inflates every
+compressed frame back with that same code, and one that does not come back byte for byte is stored as it is.
 
-lump.bin layout (little-endian), version 6 (the board also reads 3 to 5, which have no atlas):
-  "LUMP" u16 version=6  u16 nFrames  u8 nMoods  u8 fps
+lump.bin layout (little-endian), version 7 (the board also reads 3 to 6: 6 has no compressed frames, 3 to 5 no atlas):
+  "LUMP" u16 version=7  u16 nFrames  u8 nMoods  u8 fps
   per mood:      u8 base mood index, u8 nameLen, name
   u16 nSeqs (at most 750 in lump.bin: the board keeps room for that many; a u8 before version 5)
   per sequence:  u8 kind (0 loop, 1 transition, 2 event), u8 from, u8 to,
@@ -40,15 +43,21 @@ lump.bin layout (little-endian), version 6 (the board also reads 3 to 5, which h
                  from the pixel the glyph is drawn at), u8 width, u8 height, then height rows of
                  ceil(width / 2) bytes, 4 bits of coverage a pixel (0..15), the left one in the high nibble
   u32 offset[nFrames]  (from start of frame data; the top two bits are the kind: 00 pixels,
-                 10 instructions, 11 glyphs)
+                 01 compressed (version 7), 10 instructions, 11 glyphs)
   frame data: a pixel frame is runs of [u8 count (1..255)][u16 rgb565 big-endian] until 57600 px;
               an instruction frame is u16 length, then the instructions (see encode());
               a glyph frame is u16 length, then u16 background rgb565, then per glyph in drawing order
               s16 x, s16 y (the whole pixel the browser drew its anchor at), u8 atlas index, u16 rgb565
-              (its colour with its alpha folded in against black)
-A clip is the same layout holding only its own sequences, frames and glyphs.
+              (its colour with its alpha folded in against black);
+              a compressed frame is u8 the kind it inflates to (0, 2 or 3), u16 base (the frame whose bytes it
+              inflates after, 0xFFFF for none), u32 size (the bytes it inflates to: the frame exactly as that kind
+              stores it, its u16 length included), u32 length of the deflate, u32 adler-32 of the size bytes, then
+              raw deflate (RFC 1951) with the base's bytes as its preset dictionary. A base is a compressed frame with
+              no base of its own, and a frame and its base come to at most 172800 bytes (WINDOW: the longest a pixel
+              frame can be), so a frame needs at most two inflates and the board one fixed window.
+A clip is the same layout holding only its own sequences, frames and glyphs (a base is always in the same file).
 """
-import argparse, glob, hashlib, http.server, json, math, os, re, shutil, socket, struct, subprocess, sys, tempfile, threading, zlib
+import argparse, bisect, glob, hashlib, http.server, json, math, os, re, shutil, socket, struct, subprocess, sys, tempfile, threading, zlib
 from urllib.parse import urlparse, parse_qs
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -259,12 +268,14 @@ def encode(calls):
     return bytes(out) if len(out) < 65536 else None
 
 
-def native(name, header):
-    """tools/<name>.cpp built with the firmware's own firmware/src/<header>, rebuilt when either changes."""
+def native(name, header, *more):
+    """tools/<name>.cpp built with the firmware's own firmware/src/<header> (and tools/ for what only the Mac needs,
+    such as tinfl.h), rebuilt when any of them changes."""
     exe = os.path.join(tempfile.gettempdir(), "lump_" + name)
     src = os.path.join(ROOT, "tools", name + ".cpp"); hdr = os.path.join(ROOT, "firmware", "src", header)
-    if not os.path.exists(exe) or os.path.getmtime(exe) < max(os.path.getmtime(src), os.path.getmtime(hdr)):
-        subprocess.run(["clang++", "-O2", "-std=c++17", "-I", os.path.dirname(hdr), src, "-o", exe], check=True)
+    deps = [src, hdr] + [os.path.join(ROOT, "tools", m) for m in more]
+    if not os.path.exists(exe) or os.path.getmtime(exe) < max(map(os.path.getmtime, deps)):
+        subprocess.run(["clang++", "-O2", "-std=c++17", "-I", os.path.dirname(hdr), "-I", os.path.join(ROOT, "tools"), src, "-o", exe], check=True)
     return exe
 
 
@@ -340,6 +351,108 @@ def check_glyphs(atlas, frames):
     feed = struct.pack("<I", len(atlas)) + atlas + b"".join(struct.pack("<I", len(g)) + g + rgba for g, rgba in frames)
     res = subprocess.run([native("glyph_check", "glyphs.h")], input=feed, capture_output=True, check=True).stdout.decode().split("\n")
     return [(float(a), int(b)) for a, b in (line.split() for line in res if line)]
+
+
+# ---- compressed frames (version 7): firmware/src/packed.h inflates them, after their base's bytes ----
+HEAD, NONE = 15, 0xFFFF           # the record's head (kind, base, size, deflate length, adler-32); no base
+WINDOW = 3 * 240 * 240            # a frame and its base together (packed::WINDOW)
+RUN, REACH = 16, 64               # one keyframe to a run of at most 16 frames in file order; then each frame takes the
+                                  # best keyframe this many frames either side of it
+
+
+def deflate(data, base=b""):
+    c = zlib.compressobj(9, zlib.DEFLATED, -15, 9, zlib.Z_DEFAULT_STRATEGY, *([base] if base else []))
+    return c.compress(data) + c.flush()
+
+
+def record(kind, data, base=NONE, base_data=b""):
+    z = deflate(data, base_data)
+    return struct.pack("<BHIII", kind, base, len(data), len(z), zlib.adler32(data)) + z
+
+
+def keyframes(raw, alone):
+    """For each frame, the keyframe it is compressed after, or None. A keyframe compresses on its own, and each run of
+    up to RUN frames in file order (consecutive frames are alike) shares the one that makes the run smallest, chosen by
+    a dynamic programme over the runs; then each frame takes the best keyframe within REACH of it."""
+    n = len(raw)
+    own = [min(len(alone[i]), len(raw[i])) for i in range(n)]
+    can = [len(alone[i]) < len(raw[i]) for i in range(n)]
+    pair = {}
+
+    def cost(i, k):
+        if i == k or not can[k] or len(raw[i]) + len(raw[k]) > WINDOW: return own[i]
+        if (i, k) not in pair: pair[(i, k)] = HEAD + len(deflate(raw[i], raw[k]))
+        return min(pair[(i, k)], own[i])
+    best, choice = [0] + [None] * n, [None] * (n + 1)
+    for b in range(1, n + 1):
+        for a in range(max(0, b - RUN), b):
+            for k in range(a, b):
+                v = best[a] + sum(cost(i, k) for i in range(a, b))
+                if best[b] is None or v < best[b]: best[b], choice[b] = v, (a, k)
+    base, b = [None] * n, n
+    while b:
+        a, k = choice[b]
+        for i in range(a, b): base[i] = k if i != k and cost(i, k) < own[i] else None
+        b = a
+    keys = sorted({k for k in base if k is not None})
+    for i in range(n):
+        if base[i] is None: continue
+        near = [k for k in keys[max(0, bisect.bisect_left(keys, i - REACH)):bisect.bisect_right(keys, i + REACH)] if k != i]
+        base[i] = min(near, key=lambda k: (cost(i, k), abs(k - i), k))
+    return base
+
+
+def inflate_back(stored):
+    """Every compressed frame of a frame table [(kind, bytes)] inflated by firmware/src/packed.h with the ROM's tinfl,
+    each cold (its base too): {frame index: its bytes, or None if refused}."""
+    table = bytearray(); off = 0
+    for kind, blob in stored:
+        table += struct.pack("<I", off | (kind << 30)); off += len(blob)
+    body = bytes(table) + b"".join(b for _, b in stored)
+    feed = struct.pack("<IIII", len(stored), 0, len(table), len(body)) + body
+    out = subprocess.run([native("pack_check", "packed.h", "tinfl.h")], input=feed, capture_output=True, check=True).stdout
+    got, p = {}, 0
+    while p < len(out):
+        f, size = struct.unpack_from("<II", out, p); p += 8
+        if size >= 0xFFFFFFFE: got[f] = None; continue
+        got[f] = out[p:p + size]; p += size
+    return got
+
+
+def pack(blobs):
+    """The frames as the file stores them: compressed where that is smaller, after a keyframe where that is smaller
+    still, and each compressed one kept only if packed.h inflates it back to its frame byte for byte (a keyframe that
+    does not takes its frames' compression with it: they are tried again on their own). (stored, what it came to)."""
+    raw = [b for _, b in blobs]
+    alone = [record(k, b) for k, b in blobs]
+    base = keyframes(raw, alone)
+    rec = [alone[i] if base[i] is None else record(k, raw[i], base[i], raw[base[i]]) for i, (k, _) in enumerate(blobs)]
+    use = [len(rec[i]) < len(raw[i]) for i in range(len(raw))]
+    refused = 0
+    for _ in range(2):
+        stored = [(1, rec[i]) if use[i] else blobs[i] for i in range(len(raw))]
+        back = inflate_back(stored)
+        bad = {i for i, b in back.items() if b != raw[i]}
+        if not bad: break
+        refused += len(bad)
+        for i in bad: use[i] = False
+        for i in range(len(raw)):                     # a frame whose keyframe is now stored as it is: on its own
+            if use[i] and base[i] is not None and not use[base[i]]:
+                base[i] = None; rec[i] = alone[i]; use[i] = len(alone[i]) < len(raw[i])
+    else:
+        stored = [(1, rec[i]) if use[i] else blobs[i] for i in range(len(raw))]
+        if any(b != raw[i] for i, b in inflate_back(stored).items()): sys.exit("packed.h does not inflate the frames it was given back")
+    names = {0: "pixels", 2: "instructions", 3: "glyphs"}
+    by = {names[k]: {"frames": 0, "compressed": 0, "bytes": 0, "stored": 0} for k in (0, 2, 3)}
+    for i, (k, b) in enumerate(blobs):
+        s = by[names[k]]; s["frames"] += 1; s["compressed"] += use[i]; s["bytes"] += len(b); s["stored"] += len(stored[i][1])
+    keys = {base[i] for i in range(len(raw)) if use[i] and base[i] is not None}
+    windows = [len(raw[i]) + (len(raw[base[i]]) if base[i] is not None else 0) for i in range(len(raw)) if use[i]]
+    return stored, {"by_kind": {k: v for k, v in by.items() if v["frames"]}, "keyframes": len(keys),
+                    "after_a_keyframe": sum(1 for i in range(len(raw)) if use[i] and base[i] is not None),
+                    "on_their_own": sum(1 for i in range(len(raw)) if use[i] and base[i] is None and i not in keys),
+                    "as_they_are": sum(1 for u in use if not u), "largest_window": max(windows, default=0),
+                    "refused_by_pack_check": refused}
 
 
 def lint(name, pics, calls, stuck, shows, size):
@@ -429,15 +542,16 @@ def build():
             why["pixels: didn't match closely enough"] += 1; blobs.append((0, rle(pics[i]))); continue
         worst = (max(worst[0], mean), max(worst[1], far))
         why["instructions"] += 1; blobs.append((2, struct.pack("<H", len(v)) + v))
-    out = bytearray(b"LUMP") + struct.pack("<HHBB", 6, len(blobs), len(moods), 24)
+    stored, packing = pack(blobs)
+    out = bytearray(b"LUMP") + struct.pack("<HHBB", 7, len(stored), len(moods), 24)
     for m in meta["moments"]:
         out += bytes([m["base"]]) + pstr(m["name"])
     out += struct.pack("<H", len(meta["seqs"])) + body + atlas
     off = 0
-    for kind, blob in blobs:
+    for kind, blob in stored:
         out += struct.pack("<I", off | (kind << 30)); off += len(blob)
     if off >= 1 << 30: sys.exit("more than a gigabyte of frames")
-    for _, blob in blobs:
+    for _, blob in stored:
         out += blob
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     with open(out_path, "wb") as f:
@@ -454,7 +568,7 @@ def build():
             "named_drawings": {"total": len(shows), "without_pixel_frames": len(shows) - len(as_pixels), "with_pixel_frames": as_pixels},
             "instruction_bytes": sum(len(b) for k, b in blobs if k == 2),
             "glyph_bytes": sum(gsizes), "atlas_bytes": len(atlas), "atlas_glyphs": len(keys),
-            "pixel_bytes": sum(len(b) for k, b in blobs if not k),
+            "pixel_bytes": sum(len(b) for k, b in blobs if not k), "compressed": packing,
             "glyph_frame_bytes": {"smallest": gsizes[0], "median": gsizes[len(gsizes) // 2], "largest": gsizes[-1]} if gsizes else None,
             "glyphs_in_a_frame": max((len(lists[i][1]) for i in glyphed), default=0),
             "text_states": [{"font": k[0], "align": k[1], "baseline": k[2], "texts": len(v["glyphs"]), "y_moves_down_past": v["yUp"]} for k, v in texts.items()],
