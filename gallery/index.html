@@ -102,6 +102,7 @@
       for (let k = 0; k < len; k++, p += 2) ids[k] = dv.getUint16(p, true);
       seqs[name] = ids;
     }
+    if (dv.getUint16(4, true) >= 6) p += 6 + 4 * dv.getUint16(p, true) + dv.getUint32(p + 2, true);   // version 6: the glyph atlas
     return { d, dv, seqs, offsets: p, base: p + 4 * frames };
   }
 
@@ -121,7 +122,9 @@
 
   function draw(c, src, id) {
     const { d, dv } = src;
-    let p = src.base + (dv.getUint32(src.offsets + 4 * id, true) & 0x7FFFFFFF);
+    const o = dv.getUint32(src.offsets + 4 * id, true);
+    if (o >>> 30 !== 2) { c.setTransform(S, 0, 0, S, 0, 0); c.fillStyle = '#000'; c.fillRect(0, 0, 240, 240); return; }   // only instruction frames are replayed here
+    let p = src.base + (o & 0x3FFFFFFF);
     const end = p + 2 + dv.getUint16(p, true); p += 2;
     const s16 = () => { const v = dv.getInt16(p, true); p += 2; return v; };
     const u16 = () => { const v = dv.getUint16(p, true); p += 2; return v; };
