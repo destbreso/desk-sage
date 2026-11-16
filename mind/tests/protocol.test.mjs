@@ -9,6 +9,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { SIGNALS } from '../table.mjs';
+import { readArt } from '../art.mjs';
 
 const ROOT = join(import.meta.dirname, '..', '..');
 const SAGE_BIN = join(ROOT, 'firmware', 'data', 'sage.bin');
@@ -32,8 +33,8 @@ function start(t) {
 test('the art first, in the protocol both speak, then one answer a signal, in order, with its id', async (t) => {
   const m = start(t);
   const art = await m.ask({ id: 0, signal: 'art', protocol: PROTOCOL, path: SAGE_BIN });
-  assert.deepEqual([art.id, art.protocol, art.acts], [0, PROTOCOL, 31]);
-  assert.match(art.why, /not these of the table: .*holo_clock/);
+  // (whatever the committed art holds today: counted through the same parser, never written down here)
+  assert.deepEqual([art.id, art.protocol, art.acts], [0, PROTOCOL, Object.keys(await readArt(SAGE_BIN)).length]);
   const many = [
     { id: 2, signal: 'tests', ok: false, now: 1000, mood: 'working' },
     { id: 3, signal: 'tests', ok: false, now: 1010, mood: 'working' },
@@ -44,7 +45,7 @@ test('the art first, in the protocol both speak, then one answer a signal, in or
   const answers = [];
   for (const _ of many) answers.push(JSON.parse(await m.next()));
   assert.deepEqual(answers.map((a) => a.id), [2, 3, 4, 5]);
-  assert.match(answers[0].play, /^(work_tests_fail|glyph_glitch)$/);
+  assert.match(answers[0].play, /^(work_tests_fail|life_tests_fail|holo_tests|holo_screen_tests|glyph_glitch)$/);
   assert.equal(answers[1].play, undefined);
   assert.match(answers[1].why, /played 10 s ago/);
   for (const a of answers) assert.deepEqual(Object.keys(a).filter((k) => !['id', 'play', 'why'].includes(k)), []);

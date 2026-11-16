@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const artAt = process.argv.indexOf('--art');
 const ART = artAt > 0 ? resolve(process.argv[artAt + 1]) : join(ROOT, 'firmware', 'data', 'sage.bin');
+const HOLDS = await (await import('../art.mjs')).readArt(ART);             // the acts this art holds, read as the mind reads them
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function waitFor(what, fn, ms = 15000, every = 25) {
@@ -111,13 +112,14 @@ try {
     hook('PostToolUseFailure', { tool_name: 'Bash', tool_input: { command: 'npm test' }, error: 'Exit code 1' });
   }, ['work_tests_fail', 'life_tests_fail', 'holo_tests', 'holo_screen_tests', 'glyph_glitch'], { after: 7000 });
   await step('the context is compacted', () => hook('PreCompact', { trigger: 'auto' }), ['glyph_rain', 'glyph_decode'], { after: 8000 });
-  await step('a push', () => hook('PostToolUse', { tool_name: 'Bash', tool_input: { command: 'git push' }, tool_response: { stdout: '' } }), ['life_deploy', 'done_glider'], { after: 4500 });
+  // (and the next step waits for whichever it played to end: the board never cuts an act short)
+  await step('a push', () => hook('PostToolUse', { tool_name: 'Bash', tool_input: { command: 'git push' }, tool_response: { stdout: '' } }), ['life_deploy', 'done_glider'], { after: 1000 * Math.max(...['life_deploy', 'done_glider'].map((a) => HOLDS[a] || 0)) + 1500 });
   await step('Claude stops, nothing else going on', () => hook('Stop'), ['done_glider', 'done_hearts', 'glyph_joy', 'holo_screen_self'], { after: 6000 });
-  await step('the battery falls below a quarter (an act the art lacks)', async () => {
+  await step('the battery falls below a quarter', async () => {
     await post('/usage', { rate_limits: { five_hour: { used_percentage: 50, resets_at: Math.floor(Date.now() / 1000) + 3600 } } });
     await sleep(300);
     await post('/usage', { rate_limits: { five_hour: { used_percentage: 80, resets_at: Math.floor(Date.now() / 1000) + 3600 } } });
-  }, null, { until: /mind: usage -> nothing \(its battery fell below a quarter/ });
+  }, ...('holo_battery' in HOLDS ? [['holo_battery'], { after: 1000 * HOLDS.holo_battery + 1000 }] : [null, { until: /mind: usage -> nothing \(its battery fell below a quarter/ }]));
   // the session ends (it was done but unseen, so awake): idle, and its next idle minute
   await step('idle time', () => hook('SessionEnd'), Object.keys((await import('../table.mjs')).REACTIONS.idle_late.acts), { ms: 95000, after: 9000 });
   // taps about a second apart, in the middle of its hellos: its patience runs out

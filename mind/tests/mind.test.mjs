@@ -93,10 +93,13 @@ test('nothing is chosen before the art is known', () => {
 });
 
 test('the committed art is read through the emulator\'s parser, and acts it lacks are never chosen', async () => {
-  const acts = await readArt(SAGE_BIN);
-  assert.ok('tap_hello' in acts && 'work_tests_fail' in acts && 'glyph_glitch' in acts);
-  assert.equal(acts.tap_hello, 40 / 24);
-  for (const a of ['holo_clock', 'holo_battery', 'life_tests_fail', 'done_hearts', 'glyph_form']) assert.ok(!(a in acts), a);
+  const all = await readArt(SAGE_BIN);
+  assert.ok('tap_hello' in all && 'work_tests_fail' in all && 'glyph_glitch' in all);
+  assert.equal(all.tap_hello, 40 / 24);
+  // (an art without some of the table's acts, made from the committed one, so the test does not hang on what it holds)
+  const LACKS = ['holo_clock', 'holo_battery', 'life_tests_fail', 'done_hearts', 'glyph_form', 'holo_tests', 'holo_screen_tests', 'life_deploy', 'holo_self', 'holo_life', 'holo_screen_self'];
+  const acts = Object.fromEntries(Object.entries(all).filter(([k]) => !LACKS.includes(k)));
+  for (const a of LACKS) assert.ok(!(a in acts), a);
   const m = mindWith(acts, 7);
   const said = m.know(acts);
   assert.match(said.why, /not these of the table: .*holo_clock/);

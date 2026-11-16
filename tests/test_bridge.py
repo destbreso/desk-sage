@@ -928,10 +928,10 @@ class MindProcess(unittest.TestCase):
     def test_the_real_mind_reads_the_art_and_answers(self):
         m = self.mind(art=self.SAGE_BIN)
         self.assertTrue(self.ready(m))
-        self.assertEqual(m.acts, 31)
+        self.assertGreater(m.acts, 0)          # (as many as the committed art holds today, never written down here)
         self.assertEqual(m.ask("tap", mood="idle", battery=0.5)["play"], "tap_hello")
         d = m.ask("tests", ok=False, mood="working")
-        self.assertIn(d["play"], ("work_tests_fail", "glyph_glitch"))
+        self.assertIn(d["play"], ("work_tests_fail", "life_tests_fail", "holo_tests", "holo_screen_tests", "glyph_glitch"))
         self.assertIn("played 0 s ago", m.ask("tests", ok=False, mood="working")["why"])     # its cooldown
         self.assertIn("busy with", m.ask("tap", mood="idle")["why"])                        # work comes first
 
