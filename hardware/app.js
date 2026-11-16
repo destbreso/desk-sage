@@ -155,7 +155,8 @@
       const col = columnWidth(W);
       const vt = viewer.getBoundingClientRect().top;
       const top = Math.max(...["level", "hint", "phone-hint"].map((id) => document.getElementById(id).getBoundingClientRect().bottom)) - vt + 8;
-      const bottom = viewer.getBoundingClientRect().bottom - document.getElementById("controls").getBoundingClientRect().top + 8;
+      const ctrl = document.getElementById("controls").getBoundingClientRect();
+      const bottom = ctrl.height ? viewer.getBoundingClientRect().bottom - ctrl.top + 8 : 8;
       return { W, H, col, top: Math.max(8, top), bottom: Math.max(8, bottom) };
     }
     function fit(b, az, el) {
@@ -396,7 +397,7 @@
       const k = Math.min(1, dt * 10);
       const hotLeaves = new Set(hover ? leavesOf(hover) : []);
       const keep = new Set(selected ? leavesOf(selected) : []);
-      const lit = DIM_KEEP[LEVELS[level()].focus];
+      const lit = DIM_KEEP[LEVELS[litLevel === null ? level() : litLevel].focus];
       model.parts.forEach((p) => {
         const dim = !selected && lit && !lit.includes(partTop[p.id]);
         const ghost = (selected && !keep.has(p.id)) || dim;
@@ -438,7 +439,7 @@
         b.material.opacity += ((off ? 0.08 : b.userData.a) * blobHeight(b) - b.material.opacity) * k;
       });
     }
-    let reflK = 1;
+    let reflK = 1, litLevel = null;
     function blobHeight(b) {
       const o = model.tops[b.userData.id];
       return Math.max(0, 1 - Math.max(0, o.position.y - 5) / 140);
@@ -790,7 +791,14 @@
         play = null;
         if (opts.depth !== undefined) d = opts.depth;
         if (opts.split) Object.assign(split, opts.split), Object.assign(splitGoal, opts.split);
-        model.update(d, split);
+        litLevel = opts.lit === undefined ? null : opts.lit;
+        grid.visible = opts.grid !== false;
+        model.update(d, split, !!opts.forceSplit);
+        (opts.hide || []).forEach((id) => {
+          const o = model.tops[id] || model.parts.get(id).group;
+          o.visible = false;
+          blobs.forEach((b) => b.userData.id === id && (b.visible = false));
+        });
         if (opts.view) {
           const f = opts.view.fitTo ? fit(topsBox(opts.view.fitTo, box), opts.view.az, opts.view.el) : levelView(d);
           cam.target.copy(opts.view.target ? new THREE.Vector3(...opts.view.target) : f.target);
@@ -807,7 +815,7 @@
         calloutAlpha = 1;
         layoutCallouts();
         updateHud();
-        return true;
+        return { target: cam.target.toArray(), D: cam.D, az: cam.az, el: cam.el };
       },
     });
     model.ready.then(() => {

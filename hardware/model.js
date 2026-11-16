@@ -943,10 +943,12 @@
       });
     });
 
-    function update(d, split) {
+    // split: how far the prism and the display are apart on their own; force uses it instead of the level's
+    function update(d, split, force) {
       nodes.forEach((o) => poseAt(o, d));
-      const sp = Math.max(Math.min(1, Math.max(0, d - 5)), split.prism || 0);
-      const sd = Math.max(Math.min(1, Math.max(0, d - 5)), split.display || 0);
+      const byLevel = force ? 0 : Math.min(1, Math.max(0, d - 5));
+      const sp = Math.max(byLevel, split.prism || 0);
+      const sd = Math.max(byLevel, split.display || 0);
       splitNodes.prism.forEach((o) => poseAt(o, sp));
       splitNodes.display.forEach((o) => poseAt(o, sd));
       // the loose headers are in the box, not the device: they come in when the board's parts come off
