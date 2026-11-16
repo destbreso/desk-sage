@@ -17,26 +17,26 @@ Sage as the board will show it, each animation played through the same bake that
 ### Every day
 
 <table>
-<tr><td align="center"><img src="gallery/sage/fidget_turn.gif" width="200" alt="Turning round on the spot"><br><sub>Turning round on the spot</sub></td><td align="center"><img src="gallery/sage/idle.gif" width="200" alt="Waiting for something to happen"><br><sub>Waiting for something to happen</sub></td><td align="center"><img src="gallery/sage/working.gif" width="200" alt="Reading while Claude works"><br><sub>Reading while Claude works</sub></td><td align="center"><img src="gallery/sage/alert.gif" width="200" alt="Something needs you"><br><sub>Something needs you</sub></td></tr>
-<tr><td align="center"><img src="gallery/sage/night.gif" width="200" alt="Asleep at night"><br><sub>Asleep at night</sub></td><td align="center"><img src="gallery/sage/done_glider.gif" width="200" alt="A long job done: a glider crosses its visor"><br><sub>A long job done: a glider crosses its visor</sub></td><td align="center"><img src="gallery/sage/fidget_mark.gif" width="200" alt="The site's prompt on its face"><br><sub>The site's prompt on its face</sub></td><td align="center"><img src="gallery/sage/fidget_look.gif" width="200" alt="A look over its shoulder"><br><sub>A look over its shoulder</sub></td></tr>
+<tr><td align="center"><img src="gallery/sage/fidget_turn.gif?v=c40dc497" width="200" alt="Turning round on the spot"><br><sub>Turning round on the spot</sub></td><td align="center"><img src="gallery/sage/idle.gif?v=dfc45ce4" width="200" alt="Waiting for something to happen"><br><sub>Waiting for something to happen</sub></td><td align="center"><img src="gallery/sage/working.gif?v=09177796" width="200" alt="Reading while Claude works"><br><sub>Reading while Claude works</sub></td><td align="center"><img src="gallery/sage/alert.gif?v=30ddd962" width="200" alt="Something needs you"><br><sub>Something needs you</sub></td></tr>
+<tr><td align="center"><img src="gallery/sage/night.gif?v=c1d1af99" width="200" alt="Asleep at night"><br><sub>Asleep at night</sub></td><td align="center"><img src="gallery/sage/done_glider.gif?v=8812fe27" width="200" alt="A long job done: a glider crosses its visor"><br><sub>A long job done: a glider crosses its visor</sub></td><td align="center"><img src="gallery/sage/fidget_mark.gif?v=ccfa5dad" width="200" alt="The site's prompt on its face"><br><sub>The site's prompt on its face</sub></td><td align="center"><img src="gallery/sage/fidget_look.gif?v=6b610a63" width="200" alt="A look over its shoulder"><br><sub>A look over its shoulder</sub></td></tr>
 </table>
 
 ### What I am doing
 
 <table>
-<tr><td align="center"><img src="gallery/sage/work_tests_fail.gif" width="200" alt="Tests fail: a glitch scuttles in, and it stomps it"><br><sub>Tests fail: a glitch scuttles in, and it stomps it</sub></td><td align="center"><img src="gallery/sage/work_deploy.gif" width="200" alt="A deploy: the site's prompt takes off"><br><sub>A deploy: the site's prompt takes off</sub></td><td align="center"><img src="gallery/sage/work_build.gif" width="200" alt="A build: its own modules land on the pile"><br><sub>A build: its own modules land on the pile</sub></td></tr>
+<tr><td align="center"><img src="gallery/sage/work_tests_fail.gif?v=5cb21cac" width="200" alt="Tests fail: a glitch scuttles in, and it stomps it"><br><sub>Tests fail: a glitch scuttles in, and it stomps it</sub></td><td align="center"><img src="gallery/sage/work_deploy.gif?v=8a34492a" width="200" alt="A deploy: the site's prompt takes off"><br><sub>A deploy: the site's prompt takes off</sub></td><td align="center"><img src="gallery/sage/work_build.gif?v=895e94a2" width="200" alt="A build: its own modules land on the pile"><br><sub>A build: its own modules land on the pile</sub></td></tr>
 </table>
 
 ### The camera
 
 <table>
-<tr><td align="center"><img src="gallery/sage/cam_orbit.gif" width="200" alt="All the way round it"><br><sub>All the way round it</sub></td><td align="center"><img src="gallery/sage/cam_crane.gif" width="200" alt="From below to above"><br><sub>From below to above</sub></td><td align="center"><img src="gallery/sage/cam_top.gif" width="200" alt="From straight above"><br><sub>From straight above</sub></td></tr>
+<tr><td align="center"><img src="gallery/sage/cam_orbit.gif?v=d4b0b337" width="200" alt="All the way round it"><br><sub>All the way round it</sub></td><td align="center"><img src="gallery/sage/cam_crane.gif?v=7a2cfb7e" width="200" alt="From below to above"><br><sub>From below to above</sub></td><td align="center"><img src="gallery/sage/cam_top.gif?v=650db1e9" width="200" alt="From straight above"><br><sub>From straight above</sub></td></tr>
 </table>
 
 ### Made of the rain
 
 <table>
-<tr><td align="center"><img src="gallery/sage/glyph_form.gif" width="200" alt="Forming out of the rain, eyes first"><br><sub>Forming out of the rain, eyes first</sub></td><td align="center"><img src="gallery/sage/glyph_mode.gif" width="200" alt="Made of glyphs"><br><sub>Made of glyphs</sub></td></tr>
+<tr><td align="center"><img src="gallery/sage/glyph_form.gif?v=1e7b842f" width="200" alt="Forming out of the rain, eyes first"><br><sub>Forming out of the rain, eyes first</sub></td><td align="center"><img src="gallery/sage/glyph_mode.gif?v=c7996340" width="200" alt="Made of glyphs"><br><sub>Made of glyphs</sub></td></tr>
 </table>
 
 ## Roadmap
