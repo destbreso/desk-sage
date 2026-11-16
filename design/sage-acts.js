@@ -133,6 +133,8 @@
   act("tap_hello", 40, (t) => ({ mood: "happy", ...hop(t, 6, 12, 6), roll: t < 20 ? 0.06 : -0.04, antenna: 1 }));
   act("tap_dizzy", 72, (t) => ({ eyes: "dizzy", roll: q(Math.sin(t / 4) * 0.14 * (1 - seg(t, 48, 72)), 0.01), headYaw: q(Math.sin(t / 6) * 0.2 * (1 - seg(t, 48, 72)), 0.02), antenna: t % 6 < 3 ? 1 : 0.3 }));
   act("done_glider", 96, (t) => ({ eyes: "glider", rise: q((t % 48) / 48, 1 / 24), antenna: 1 }));
+  // it loves what it sees: its eyes the room's red hearts, beating, and hearts rising from its antenna
+  act("done_hearts", 72, (t) => ({ eyes: "hearts", hearts: q((t % 48) / 48, 1 / 24), antenna: 1 }));
   // a turn on the spot, all the way round: its head leading, its body following, past the front and back to it
   act("fidget_turn", 108, (t) => { const u = seg(t, 6, 90), body = 2 * Math.PI * back(u) - 2 * Math.PI; return { yaw: q(((body % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI), 0.02), headYaw: q(0.45 * Math.sin(Math.PI * u), 0.02), mood: t > 92 ? "happy" : "calm", wheel: q(u * 6, 0.1), antenna: t > 92 ? 1 : 0.7 }; });
   act("fidget_look", 96, (t) => ({ headYaw: q(t < 30 ? -0.9 * back(seg(t, 0, 12)) : t < 60 ? -0.9 + 1.8 * back(seg(t, 30, 44)) : 0.9 * (1 - ease(seg(t, 60, 74))), 0.02), look: [0, -0.2] }));
@@ -149,10 +151,52 @@
   // (the camera rises over the desk for these, so the board reads)
   const DESKCAM = { tilt: 0.66, camY: -24 };
 
+  // tests fail, a deploy and a build, each with what comes for it
+  // tests fail: its visor's cells break into amber, a glitch scuttles in, it turns, rolls over leaning into it, winds
+  // up and stomps it, then a glider crosses its visor
+  act("work_tests_fail", 140, settled(140, (t) => {
+    const turnOut = back(seg(t, 30, 44)), roll = ease(seg(t, 44, 72)), turnBack = back(seg(t, 98, 114));
+    const x = q(22 * roll, 0.25), speed = 22 * (ease(seg(t + 1, 44, 72)) - ease(seg(t - 1, 44, 72))) / 2, squashed = t >= 90;
+    const wind = seg(t, 74, 86), stomp = seg(t, 86, 90);
+    return {
+      eyes: t < 24 ? "ash" : t >= 116 ? "glider" : null, mood: t < 98 ? "worried" : "happy", amber: t < 98,
+      headYaw: q(t < 30 ? 0.6 * back(seg(t, 10, 22)) : 0.6 * (1 - seg(t, 30, 38)), 0.02), yaw: q(Math.PI / 2 * (turnOut - turnBack), 0.02),
+      x, wheel: q(x / 5.5, 0.1), lean: q(-speed * 0.12 + (t >= 72 && t < 82 ? 0.06 * Math.sin(Math.PI * seg(t, 72, 82)) : 0), 0.01),
+      footSide: -1, foot: q(t < 86 ? 11 * easeOut(wind) : t < 90 ? 11 * (1 - stomp) : 0, 0.5), crouch: q(t < 86 ? 2 * wind : t < 96 ? 3 * Math.sin(Math.PI * seg(t, 88, 96)) : 0, 0.25),
+      camY: t >= 89 && t < 95 ? q(Math.sin(t * 3) * 1.5, 0.5) : 0, camX: 14, zoom: 0.92, antenna: t >= 116 ? 1 : 0.6,
+      things: [{ kind: "glitch", x: squashed ? 38 : q(90 - 50 * seg(t, 0, 30) - 4 * seg(t, 30, 84), 0.5), z: 20, step: q(t * 0.9, 0.3), squashed, fade: q(seg(t, 92, 132), 0.05) }],
+    };
+  }));
+  // a deploy: the website's prompt rises out of the desk beside it, its visor's cells light one by one, the prompt
+  // takes off on a column of light, it follows it up with its whole head, and joy rises from its antenna
+  act("work_deploy", 150, settled(150, (t) => {
+    const pop = seg(t, 0, 16), launch = seg(t, 72, 122), up = 260 * launch * launch;
+    return {
+      headYaw: q(0.6 * back(seg(t, 6, 18)), 0.02), bow: q(-0.35 * ease(seg(t, 76, 104)), 0.02), look: [0, q(-0.8 * ease(seg(t, 76, 104)))],
+      eyes: t >= 16 && t < 66 ? "cells" : null, bar: q(seg(t, 16, 62), 0.1), mood: t >= 104 ? "happy" : "calm",
+      ...(t >= 70 && t < 84 ? hop(t, 74, 8, 3) : {}), rise: t >= 108 ? q((t - 108) / 42, 1 / 24) : 0, antenna: t >= 104 ? 1 : 0.7, camX: 12, zoom: 0.92,
+      things: [{ kind: "prompt", x: q(48 + (t >= 60 && t < 74 ? Math.sin(t * 2.3) * 0.7 : 0), 0.1), z: 6, scale: q(pop < 1 ? back(pop) : 1, 0.02), up: q(up, 0.5), thrust: q(t >= 62 ? (t < 74 ? 0.5 : 1) : 0, 0.5) }],
+    };
+  }));
+  // a build: its own modules drop one by one onto a pile, it flinches at each landing, then nods, pleased
+  act("work_build", 160, settled(160, (t) => {
+    const drops = [[8, 0], [40, 22], [72, 44]];
+    const mods = drops.map(([at, rest], i) => {
+      if (t < at) return null;
+      const fall = seg(t, at, at + 14), land = t - (at + 14);
+      const y = fall < 1 ? rest + 150 * (1 - fall * fall) : rest + (land < 8 ? Math.max(0, Math.sin(Math.PI * land / 8)) * 3 : 0);
+      return { kind: "module", x: 48 + (i === 1 ? -1 : i === 2 ? 1.5 : 0), y: q(y, 0.5), z: 12, size: 22, yaw: i === 2 ? 0.12 : 0, squash: q(fall >= 1 && land < 4 ? 0.22 * (1 - land / 4) : 0, 0.02) };
+    }).filter(Boolean);
+    const flinch = drops.some(([at]) => t >= at + 14 && t < at + 20);
+    return { headYaw: q(0.55 * back(seg(t, 0, 10)) * (1 - ease(seg(t, 104, 116))), 0.02), look: [0, -0.2], squeezed: flinch, crouch: flinch ? 1.5 : 0, eyes: t >= 116 && t < 140 ? "glider" : null,
+      bow: t >= 140 ? q(0.25 * Math.sin(Math.PI * seg(t, 140, 156)), 0.02) : 0, mood: t >= 140 ? "happy" : "calm", antenna: t >= 116 ? 1 : 0.7, camX: 14, zoom: 0.88, things: mods };
+  }));
+
+  // the same moments on the Life board, as variants of them
   // tests fail: a test run lights a grid of cells one by one, and one comes up amber and will not hold still. It
   // glances back at you as if nothing happened, does a double take, leans in to look, and turns to tell you.
   const FAILS = new Set([6, 9]);
-  act("work_tests_fail", 168, settled(168, (t) => {
+  act("life_tests_fail", 168, settled(168, (t) => {
     const cells = [];
     for (let i = 0; i < 12; i++) {
       const at = 14 + i * 4.5; if (t < at) continue;
@@ -172,7 +216,7 @@
   // a deploy: a glider, the website's mark, is put together cell by cell on the desk while its visor counts the cells;
   // it gives it a nudge, the glider sets off by Life's own rule across the desk and away, and it watches it go
   const GLIDER = [[1, 0], [2, 1], [0, 2], [1, 2], [2, 2]], GLIDE = L.run(GLIDER, 60);
-  act("work_deploy", 184, settled(184, (t) => {
+  act("life_deploy", 184, settled(184, (t) => {
     const g = t < 60 ? 0 : t < 84 ? (t - 60) / 6 : 4 + (t - 84) / 2.4, away = clamp01((g - 2) / 38);
     const cells = t < 60 ? GLIDER.map(([c, r], i) => [c, r, q(back(seg(t, 10 + i * 6, 16 + i * 6)), 0.05)]).filter(([, , s]) => s > 0)
       : L.between(GLIDE, g).map(([c, r, s]) => [c, r, q(s, 0.05)]);
@@ -189,7 +233,7 @@
   // dying, until they settle into two loaves (still lifes); it watches every step, flinches when the pattern boils
   // over, and is pleased when it settles
   const SEED = [[1, 1], [1, 2], [2, 2], [3, 2], [4, 3], [0, 4], [1, 4], [4, 4]], BUILD = L.run(SEED, 17), POP = BUILD.map((s) => s.size);
-  act("work_build", 184, settled(184, (t) => {
+  act("life_build", 184, settled(184, (t) => {
     const g = t < 34 ? 0 : Math.min(17, (t - 34) / 5), gi = Math.floor(g), done = t >= 34 + 17 * 5;
     const fade = 1 - ease(seg(t, 152, 168)), lit = done && t < 152 && Math.floor((t - 119) / 6) % 2 === 0;
     const cells = (t < 34 ? SEED.map(([c, r], i) => [c, r, back(seg(t, 8 + i * 3, 13 + i * 3))]).filter(([, , s]) => s > 0) : L.between(BUILD, g))
@@ -257,13 +301,50 @@
       ...(t >= 150 ? hop(t, 156, 9, 4) : {}), crouch: reading ? 2 * ease(seg(t, 0, 16)) : 0 };
   });
 
+  // ── what it projects: holograms from its visor, as its mind shows on the website ──
+  const HOLO = { at: [84, 104, 12], w: 64, h: 46, yaw: 0.35 };
+  /** a hologram act: it turns a little to the side, throws the picture into the air, and switches it off; `show(t)` is
+   *  what the picture shows, `poseAt(t)` what Sage does meanwhile */
+  function holoAct(name, ticks, poseAt, show) {
+    act(name, ticks, settled(ticks, (t) => {
+      const open = q(Math.min(seg(t, 12, 26), 1 - seg(t, ticks - 36, ticks - 24)), 0.04), turn = ease(seg(t, 4, 14)) * (1 - ease(seg(t, ticks - 24, ticks - 14)));
+      return { headYaw: q(0.4 * turn, 0.01), look: [q(0.5 * turn), 0], camX: 34, zoom: 0.84, ...poseAt(t), holo: open > 0 ? { ...HOLO, open, ...show(t) } : null };
+    }));
+  }
+  // a test run, a cell a test as each finishes; two come up amber, and it turns to tell you
+  holoAct("holo_tests", 180, (t) => ({ mood: t >= 72 ? "worried" : "calm", amber: t >= 72, squeezed: t >= 72 && t < 76, antenna: t >= 72 ? (t % 12 < 6 ? 1 : 0.4) : 0.7,
+    ...(t >= 112 && t < 146 ? { headYaw: 0, look: [0, 0], signal: q(((t - 112) % 24) / 24, 1 / 12) } : {}) }),
+    (t) => ({ kind: "tests", count: 12, done: Math.max(0, Math.min(12, Math.floor((t - 28) / 5))), fails: [7, 10], glitch: t >= 72 && t < 110 ? 0.4 : 0 }));
+  // a build's progress round a ring, a stall halfway, and a hop when it reaches a hundred
+  const buildP = (t) => (t < 30 ? 0 : t < 64 ? 0.55 * seg(t, 30, 64) : t < 80 ? 0.55 : 0.55 + 0.45 * ease(seg(t, 80, 112)));
+  holoAct("holo_build", 168, (t) => ({ mood: t >= 112 ? "happy" : "calm", ...(t >= 112 && t < 136 ? hop(t, 118, 10, 5) : {}), burst: t >= 122 && t < 138 ? q(seg(t, 122, 138), 0.05) : 0, antenna: t >= 112 ? 1 : 0.7,
+    bow: t >= 64 && t < 80 ? q(0.1 * Math.sin(Math.PI * seg(t, 64, 80)), 0.01) : 0 }),
+    (t) => ({ kind: "ring", progress: q(buildP(t), 0.01) }));
+  // late at night: it shows you the time, yawns, and switches it off
+  holoAct("holo_clock", 180, (t) => ({ crouch: 2, mood: "sleepy", shut: t >= 80 && t < 104 ? q(0.7 * Math.sin(Math.PI * seg(t, 80, 104)), 0.1) : 0.2,
+    squash: t >= 80 && t < 104 ? q(0.25 * Math.sin(Math.PI * seg(t, 80, 104)), 0.02) : 0, antenna: 0.4 }),
+    () => ({ kind: "clock", time: "02:14" }));
+  // its battery, the author's Claude usage, below a quarter: it droops and sighs
+  holoAct("holo_battery", 164, (t) => ({ crouch: q(3 * ease(seg(t, 20, 40)), 0.25), bow: q(0.16 * ease(seg(t, 20, 40)), 0.01), mood: "sleepy", antenna: q(0.35 + 0.1 * Math.sin(t / 6), 0.05),
+    squash: t >= 76 && t < 96 ? q(-0.22 * Math.sin(Math.PI * seg(t, 76, 96)), 0.02) : 0 }),
+    () => ({ kind: "battery", level: 0.23 }));
+  // a board of the Game of Life in the air, a glider going round it
+  holoAct("holo_life", 176, (t) => ({ mood: "content", bow: q(0.04 * Math.sin(t / 5), 0.01), antenna: 0.85 }),
+    (t) => ({ kind: "life", gen: Math.max(0, Math.floor((t - 26) / 4)) }));
+  // itself, as a wireframe turning in the air; it tilts its head at it, pleased
+  holoAct("holo_self", 176, (t) => ({ roll: q(t >= 50 && t < 120 ? 0.1 * ease(seg(t, 50, 62)) * (1 - ease(seg(t, 108, 120))) : 0, 0.01), mood: t >= 120 ? "happy" : "calm", antenna: 0.9 }),
+    (t) => ({ kind: "self", turn: q(Math.max(0, t - 20) / 22, 0.01) }));
+
   // ── made of the rain ──
-  /** a glyph act: it leaves the illustrated Sage by tearing like a bad signal into glyphs, and comes back the same way */
-  function glyphAct(name, ticks, poseAt) {
+  /**
+   * A glyph act: it leaves the illustrated Sage by tearing like a bad signal into glyphs, and comes back the same way;
+   * an act that starts in the rain (`handIn` false) or ends in it (`handOut` false) tears only where it meets Sage.
+   */
+  function glyphAct(name, ticks, poseAt, { handIn = true, handOut = true } = {}) {
     act(name, ticks, (t) => {
       const p = poseAt(t);
-      if (t < 2 || t >= ticks - 2) return { ...p, glyph: undefined };
-      const torn = t < 10 ? 1 - (t - 2) / 8 : t >= ticks - 10 ? (t - (ticks - 10)) / 8 : 0;
+      if ((handIn && t < 2) || (handOut && t >= ticks - 2)) return { ...p, glyph: undefined };
+      const torn = handIn && t < 10 ? 1 - (t - 2) / 8 : handOut && t >= ticks - 10 ? (t - (ticks - 10)) / 8 : 0;
       return { ...p, glyph: { ...p.glyph, t: t - (t % 2), glitch: q(Math.max(p.glyph.glitch || 0, torn), 0.05) } };
     }, 2);
   }
@@ -277,6 +358,10 @@
     return { ...idleAt(0), look: [t >= 40 && t < 56 ? -0.7 : t >= 60 && t < 76 ? 0.7 : 0, 0], shut: blink(t, 82) || blink(t, 30), mood: t >= 150 ? "happy" : "calm",
       glyph: { mode: "form", reveal: q(reveal, 0.02), rain: reveal < 0.5 ? 0.75 : 0.35, flash: t >= 92 ? 1 : 0 } };
   });
+  // forming out of the rain, eyes first, for waking and after a reboot
+  glyphAct("glyph_form", 96, (t) => ({ ...idleAt(t), glyph: { mode: "form", reveal: q(ease(seg(t, 0, 64)), 0.02), rain: q(0.9 - 0.6 * seg(t, 0, 64), 0.05) } }), { handIn: false });
+  // dissolving into the rain, for when the bridge is gone
+  glyphAct("glyph_dissolve", 96, (t) => ({ ...idleAt(t), mood: "calm", glyph: { mode: "dissolve", reveal: q(1 - ease(seg(t, 16, 80)), 0.02), rain: q(0.3 + 0.6 * seg(t, 16, 80), 0.05) } }), { handOut: false });
   // falling apart into the rain, and forming back out of it
   glyphAct("glyph_rain", 192, (t) => ({ ...idleAt(t), glyph: t < 74 ? { mode: "dissolve", reveal: q(1 - ease(seg(t, 12, 72)), 0.02), rain: q(0.3 + 0.6 * seg(t, 12, 72), 0.05) }
     : t < 100 ? { mode: "form", reveal: 0, rain: 0.9 } : { mode: "form", reveal: q(ease(seg(t, 100, 164)), 0.02), rain: q(0.9 - 0.6 * seg(t, 100, 164), 0.05) } }));

@@ -12,7 +12,7 @@
   // Tones for the prism: black turns to glass, so the graphite and rubber are lifted from the room's or they vanish.
   const SHELL = ramp("#a99f8d", "#fbf8f1", 8), GRAPH = ramp("#33363c", "#8a8f98", 6), RUBBER = ramp("#1f2124", "#55585e", 5);
   const AMBER = ramp("#8a5a1a", "#ffe1a8", 4), ANT = ramp("#4f8a4b", "#d8f7d2", 4), PAPER = ramp("#bdb3a0", "#f6f1e6", 4), PAD = ramp("#24312a", "#4a6656", 4);
-  const T = { green: SAGE_GREEN, amber: "#ffb347", ink: "#8f8676", seam: "#8f8676", hole: "#16181b", holeLit: "#7d828b", screw: "#9aa0a8", hub: "#b9bdc4", tread: "#17181a", rim: "#cfe8d6" };
+  const T = { green: SAGE_GREEN, amber: "#ffb347", heart: "#ff3b5c", ink: "#8f8676", seam: "#8f8676", hole: "#16181b", holeLit: "#7d828b", screw: "#9aa0a8", hub: "#b9bdc4", tread: "#17181a", rim: "#cfe8d6" };
 
   // The camera: `z` 0 shows the whole of it, 1 its head close.
   const CAM = { body: { k: 1.42, x: 120, y: 228 }, close: { k: 2.3, x: 120, y: 368 } };
@@ -24,7 +24,7 @@
     // (a camera a little above it by default, so the desk and what lies on it read)
     tilt: 0.12, orbit: 0, zoom: 1, camX: 0, camY: 0, things: null, bar: 0, footSide: 1, squash: 0, antennaBend: 0, bow: 0,
     mood: "calm", look: [0, 0], shut: 0, squeezed: false, eyes: null, antenna: 0.7,
-    book: 0, page: 0, light: 0, charger: 0, signal: 0, rise: 0, burst: 0, amber: false,
+    book: 0, page: 0, light: 0, charger: 0, signal: 0, rise: 0, burst: 0, hearts: 0, amber: false, holo: null,
   };
 
   /**
@@ -110,9 +110,16 @@
 
   // What its visor shows besides its eyes, all its own: a glider of the Game of Life crossing it (all is well), a
   // block of cells breaking into amber (something failed), cells lighting one by one (progress), a slow wave (asleep),
-  // a shutter down (do not disturb), dizzy spirals, the website's prompt.
+  // a shutter down (do not disturb), dizzy spirals, the room's beating hearts, the website's prompt.
   const GLIDER = [[[1, 0], [2, 1], [0, 2], [1, 2], [2, 2]], [[0, 1], [2, 1], [1, 2], [2, 2], [1, 3]], [[2, 1], [0, 2], [2, 2], [1, 3], [2, 3]], [[1, 1], [2, 2], [3, 2], [1, 3], [2, 3]]];
   function cell(g, x, y, s) { rr(g, x + s * 0.08, y + s * 0.08, s * 0.84, s * 0.84, s * 0.22); g.fill(); }
+  /** the room's heart, its middle at (x, y), `s` about half its width */
+  function heart(g, x, y, s) {
+    g.beginPath(); g.moveTo(x, y + s * 0.8);
+    g.bezierCurveTo(x - s * 1.2, y + s * 0.05, x - s * 0.62, y - s * 0.9, x, y - s * 0.32);
+    g.bezierCurveTo(x + s * 0.62, y - s * 0.9, x + s * 1.2, y + s * 0.05, x, y + s * 0.8);
+    g.closePath(); g.fill();
+  }
   function special(g, x, y, w, h, eyes, t, bar = 0) {
     g.fillStyle = "#000000"; rr(g, x, y, w, h, h * 0.24); g.fill();
     const cy = y + h / 2, s = h * 0.13;
@@ -141,6 +148,11 @@
       g.save(); rr(g, x, y, w, h, h * 0.24); g.clip(); g.fillStyle = GRAPH[1]; g.fillRect(x, y, w, h * 0.46);
       g.strokeStyle = GRAPH[3]; g.lineWidth = Math.max(0.6, h * 0.02); for (let i = 1; i < 4; i++) { g.beginPath(); g.moveTo(x, y + h * 0.115 * i); g.lineTo(x + w, y + h * 0.115 * i); g.stroke(); } g.restore();
     } else if (eyes === "dizzy") for (const cx of [x + w * 0.3, x + w * 0.7]) { g.beginPath(); for (let a = 0; a < Math.PI * 4; a += 0.35) { const r = h * 0.17 * (0.15 + a / (Math.PI * 4)), aa = a + t * 0.6; a === 0 ? g.moveTo(cx + r * Math.cos(aa), cy + r * Math.sin(aa)) : g.lineTo(cx + r * Math.cos(aa), cy + r * Math.sin(aa)); } g.stroke(); }
+    else if (eyes === "hearts") {
+      // it loves what it sees: its eyes red hearts, beating, as in the room
+      const beat = 1 + 0.1 * Math.max(0, Math.sin((t / 24) * 8));
+      g.fillStyle = T.heart; for (const cx of [x + w * 0.3, x + w * 0.7]) heart(g, cx, cy, h * 0.2 * beat);
+    }
     else if (eyes === "mark") {
       // the website's prompt, >_, its cursor blinking
       g.beginPath(); g.moveTo(x + w * 0.27, cy - h * 0.2); g.lineTo(x + w * 0.45, cy); g.lineTo(x + w * 0.27, cy + h * 0.2); g.stroke();
@@ -158,6 +170,12 @@
   function rise(g, x, y, k, u) {
     g.fillStyle = T.green;
     for (let i = 0; i < 5; i++) { const v = (u + i / 5) % 1, cx = x + Math.sin(i * 2.4 + v * 5) * 7 * k, cyy = y - 26 * v * k, s = (2.2 - v) * k; g.globalAlpha = Math.sin(Math.PI * v); cell(g, cx - s / 2, cyy - s / 2, s); }
+    g.globalAlpha = 1;
+  }
+  /** hearts rising from its antenna, for love */
+  function floatingHearts(g, x, y, k, u) {
+    g.fillStyle = T.heart;
+    for (let i = 0; i < 3; i++) { const v = (u + i / 3) % 1; g.globalAlpha = Math.sin(Math.PI * v); heart(g, x + (i - 1) * 9 * k + Math.sin(v * 6 + i) * 2 * k, y - 22 * v * k, (1.6 + v) * k); }
     g.globalAlpha = 1;
   }
   /** a burst of cells, flying out and fading */
@@ -288,6 +306,10 @@
     if (p.signal) mark(hpt(22, 62 * hv + 18, -10), (gg, x, y, kk) => signal(gg, x, y, kk, p.signal, p.amber ? T.amber : T.green));
     if (p.rise) mark(hpt(22, 62 * hv + 18, -10), (gg, x, y, kk) => rise(gg, x, y, kk, p.rise));
     if (p.burst) mark(hpt(0, 70, 20), (gg, x, y, kk) => burst(gg, x, y, kk, p.burst));
+    if (p.hearts) mark(hpt(22, 62 * hv + 18, -10), (gg, x, y, kk) => floatingHearts(gg, x, y, kk, p.hearts));
+    // what it projects: a hologram from its visor (design/sage-holo.js)
+    // (from the edge of its visor on the side of the picture, so the beam is not lost against its face)
+    if (p.holo && window.SageHolo) SageHolo.add(S, cam, p.holo, [hpt(30, 52 * hv, 29), hpt(30, 12 * hv, 29)], t);
 
     if (p.things && window.SageThings) SageThings.add(S, p.things, cam, t);
     if (extra) extra(S, { root, head, cam, p, t });

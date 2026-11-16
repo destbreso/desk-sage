@@ -8,18 +8,19 @@ What is left, phase by phase. Once something is done, its record goes to `docs/H
 - **Who it is.** Its personality is the website's, respected and given more depth on the desk (CLAUDE.md, Who Sage is).
 - **Its look.** Illustrated for everyday: each part lit as a soft cube (a tone a face, a band where faces meet, a soft light and a specular spot), the prism's light on its edges, the visor's glass and bezel, seams, screws and treads, all drawn as the board's instructions (about 6 KB a frame). Made of the rain's glyphs for its special moments. No 3D render for now; the room's 3D Sage stored as JPEG (about 7 KB a frame) stays a possibility once the board's decoding speed is measured.
 - **Public, with Sage licensed.** The repository is public; Sage's art is all rights reserved, and the engine is MIT. It names no other project of the author's.
-- **Its desk is a board of the Game of Life.** What comes for the author's work is the website's own world, never a stock metaphor: a test run, a deploy and a build show up as cells on the desk, computed by Life's own rule.
+- **Its worlds are several.** What comes for the author's work is made for Sage (a glitch, the prompt, its modules), its desk is also a board of the Game of Life, it projects holograms as its mind shows on the website, and it is made of the rain for its special moments; no one theme takes over. An act redone keeps the old one as a variant.
 - **The prism.** Black vanishes in the glass, so Sage's visor disappears and its shell and eyes float; its graphite is lifted from the room's colour so it does not vanish too.
 
 ## Phase 2: Sage drawn as code
 
-- Glyph moments: thirteen glyph acts are drawn and stored as glyph frames, but nothing plays them at their moments yet: forming out of the rain on waking and after a reboot, dissolving into it when the bridge is gone, and now and then by itself.
+- Glyph moments: fifteen glyph acts are drawn and stored as glyph frames, but nothing plays them at their moments yet: forming out of the rain on waking and after a reboot, dissolving into it when the bridge is gone, and now and then by itself.
 - Room for more: `sage.bin` is 10,725,857 bytes, 86% of the partition, with 1.7 MB left, about 290 more instruction frames or 900 glyph frames. Going towards 50 acts needs more of them on twos, shorter, or frames compressed on the board.
+- The holograms show fixed numbers (02:14, 23%, ten passed and two failed). Real ones (the time, the battery, the test counts) need the board to draw the digits itself over a frame: a small overlay of seven-segment strokes, fed by the bridge, in the hologram's place.
 - Why `vec.h` drew the reading light's faint cone differently from Chrome (13 frames, stored as pixels until the cone was left out below a third of its light) was not looked into: a faint wash over a wide area may still miss elsewhere.
 - What glyph frames do not reproduce, for new glyph art: a translucent glyph over another cuts into it, since its alpha is folded against black (within the tolerance in Sage's art, at most 52 pixels far off); the atlas is rendered in white, and Chrome draws text slightly heavier or lighter by its colour, so dark glyphs drift (up to 21 of 255 for a dark grey glyph in a probe; Sage's are bright); and text at a fractional x is rounded to a pixel, where Chrome places it on quarter pixels.
 - Expressions that read on a 25 mm cube: worried and cross barely differ from calm with the website's face as it is. An emphasis the website's face could take as an option, leaving the website as it is, is the author's decision (below).
 - The bake reads `window.__sage` rather than the name it was written with. The bridge, `tools/ota.py` and `tools/flash.sh` still look for `firmware/data/lump.bin`, so `sage.bin` reaches the emulator only through `--art`, and the board not at all yet.
-- More acts (31 now), towards about 50 in a first version and about 175 in a complete one: idle fidgets so it never looks like a loop, reactions to the author's work, interaction, daily life, rare surprises.
+- More acts (43 now), towards about 50 in a first version and about 175 in a complete one: idle fidgets so it never looks like a loop, reactions to the author's work, interaction, daily life, rare surprises.
 - A skill for writing Sage's clips: a staging brief so they do not all look alike (change at least three of where, from where, how close, how long, the rhythm and the ending), a contact sheet checked before a clip is kept, the punchline held, no words or brands.
 
 ## Phase 3: Sage's mind in the bridge
