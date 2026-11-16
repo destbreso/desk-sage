@@ -2,7 +2,8 @@
 // is drawn by the emulator's glyphs.mjs; that picture is handed, as the reference, to tools/glyph_check.cpp, which
 // draws the same frame with the firmware's own glyphs.h (built with clang++ as the bake builds it); and, given the
 // bake's references (tools/export_frames.py --refs), it is compared with the browser's own picture of that frame.
-// The tolerance is the bake's: tools/export_frames.py MAX_MEAN, MAX_FAR.
+// The tolerance is the bake's: tools/export_frames.py MAX_MEAN, MAX_FAR. A compressed frame is inflated first as the
+// emulator inflates it (packed.mjs, with Node's zlib).
 //
 //   node emulator/checks/glyph_fidelity.mjs file.bin [refs.bin]
 
@@ -14,6 +15,8 @@ import { fileURLToPath } from 'node:url';
 import { inflateSync } from 'node:zlib';
 import { W, H, emptyAtlas, parseAtlas, draw } from '../glyphs.mjs';
 import { frameTable, MAX_MEAN, MAX_FAR } from './vec_fidelity.mjs';
+import { unpack } from '../packed.mjs';
+import { inflate } from '../inflate-node.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
@@ -68,21 +71,22 @@ export function compare(file, refsFile = null, exe = buildGlyphCheck()) {
   const refs = refsFile ? readRefs(refsFile) : null, fb = new Uint16Array(W * H), rgba = new Uint8Array(W * H * 4);
   const head = Buffer.alloc(4); head.writeUInt32LE(S.offsets - S.atlas);
   const feed = [head, Buffer.from(buf.subarray(S.atlas, S.offsets))], order = [], browser = [];
+  const frames = unpack(buf, inflate), refused = frames.flatMap((fr, f) => fr ? [] : [f]);
   for (let f = 0; f < S.nFrames; f++) {
-    if (S.kind(f) !== 3) continue;
-    const at = S.at(f), len = buf[at] | (buf[at + 1] << 8);
-    draw(fb, atlas, buf, at + 2, len);
+    if (!frames[f] || frames[f].kind !== 3) continue;
+    const { buf: b, p: at } = frames[f], len = b[at] | (b[at + 1] << 8);
+    draw(fb, atlas, b, at + 2, len);
     if (refs && refs.has(f)) browser.push({ frame: f, ...difference(fb, refs.get(f)) });
     widen(fb, rgba);
     const n = Buffer.alloc(4); n.writeUInt32LE(len);
-    feed.push(n, Buffer.from(buf.subarray(at + 2, at + 2 + len)), Buffer.from(rgba));
+    feed.push(n, Buffer.from(b.subarray(at + 2, at + 2 + len)), Buffer.from(rgba));
     order.push(f);
   }
   const out = order.length ? execFileSync(exe, { input: Buffer.concat(feed), maxBuffer: 1 << 26 }).toString().trim().split('\n') : [];
   const firmware = out.map((line, i) => { const [mean, far] = line.split(' '); return { frame: order[i], mean: +mean, far: +far }; });
   const means = browser.map(r => r.mean).sort((a, b) => a - b);
   return {
-    frames: order.length, atlasGlyphs: atlas.n,
+    frames: order.length, atlasGlyphs: atlas.n, refused,
     firmware: summary(firmware),
     browser: refs ? { ...summary(browser), medianMean: means.length ? means[means.length >> 1] : 0, missing: order.filter(f => !refs.has(f)).length } : null,
   };
@@ -93,6 +97,6 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   if (!file) { console.error('usage: node emulator/checks/glyph_fidelity.mjs file.bin [refs.bin]'); process.exit(2); }
   const r = compare(file, refs);
   console.log(JSON.stringify({ file, ...r, tolerance: { mean_pct: MAX_MEAN, far_pixels: MAX_FAR } }, null, 1));
-  const bad = r.frames && (r.firmware.identical !== r.frames || (r.browser && (r.browser.outside.length || r.browser.missing)));
+  const bad = (r.refused && r.refused.length) || (r.frames && (r.firmware.identical !== r.frames || (r.browser && (r.browser.outside.length || r.browser.missing))));
   process.exit(bad ? 1 : 0);
 }

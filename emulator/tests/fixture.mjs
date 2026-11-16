@@ -1,7 +1,11 @@
 // Small .bin files written by hand for the tests, in the layout tools/export_frames.py documents
 // (version 5 unless asked): moods [[name, base]], sequences [[kind, from, to, name, [frame per tick]]],
 // frames as {rle: [[count, rgb565], ...]}, {ops: [byte, ...]} or, from version 6, {glyphs: [bg, [[x, y, atlas index, rgb565], ...]]};
-// a version 6 file carries its atlas as [{left, top, w, h, cov: [0..15 a pixel, row by row]}].
+// a version 6 file carries its atlas as [{left, top, w, h, cov: [0..15 a pixel, row by row]}]. From version 7 a frame
+// with pack: true is stored compressed, and with base: i (another packed frame's index) after that frame's bytes.
+
+import { deflateRawSync } from 'node:zlib';
+import { adler32 } from '../packed.mjs';
 
 export function encode({ version = 5, fps = 24, moods, seqs, frames, atlas = [] }) {
   const out = [];
@@ -30,6 +34,16 @@ export function encode({ version = 5, fps = 24, moods, seqs, frames, atlas = [] 
       return { kind: 3, ...sized(body) };
     }
     return { kind: 0, body: f.rle.flatMap(([n, v]) => [n, v >> 8, v & 255]) };
+  });
+  frames.forEach((f, i) => {
+    if (!f.pack) return;
+    const b = blobs[i], raw = Uint8Array.from(b.body), base = f.base ?? 0xFFFF;
+    const z = deflateRawSync(raw, { level: 9, ...(f.base !== undefined ? { dictionary: Uint8Array.from(blobs[f.base].raw || blobs[f.base].body) } : {}) });
+    const n = raw.length, a = adler32(raw), m = z.length;
+    b.raw = b.body;
+    b.body = [b.kind, base & 255, base >> 8, n & 255, (n >>> 8) & 255, (n >>> 16) & 255, n >>> 24, m & 255, (m >>> 8) & 255, (m >>> 16) & 255, m >>> 24,
+              a & 255, (a >>> 8) & 255, (a >>> 16) & 255, a >>> 24, ...z];
+    b.kind = 1;
   });
   let off = 0;
   for (const b of blobs) { u32((off | (b.kind << 30)) >>> 0); off += b.body.length; }

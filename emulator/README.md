@@ -31,6 +31,7 @@ The page also works without the bridge, from any static server (`python3 -m http
 | `board.mjs` | `firmware/src/main.cpp`: `parseArt`, the player (`startSeq`, `nextHop`, `settle`, `setTarget`, `playEvent`, `pickTap`, `pickTapClip`), `runDemo`, `autoBehaviour`, `backlight`, `imuTask`'s tap logic, `runOffline` and the unplugged mark, `overlayVisible` and `drawOverlay`, `handleLine` and `reply`, the clip store (`addClip`, `dropOldestClip`, `dropClip`, `onClipDone`) and `loop`. Each method names the function it ports. |
 | `vec.mjs` | `firmware/src/vec.h`, the board's instruction renderer, line for line, into an RGB565 buffer. |
 | `glyphs.mjs` | `firmware/src/glyphs.h`, the board's glyph frames (version 6): the atlas's checks and the blend of each glyph's coverage, line for line. |
+| `packed.mjs` | `firmware/src/packed.h`, the board's compressed frames (version 7): the checks of a record, the window a frame is inflated into after its base, and when it inflates. The inflating is a hook: `inflate-node.mjs` (Node's zlib) in the tests and checks, and in the page `prepare()`, which inflates a file's compressed frames with the browser's `DecompressionStream` when the file arrives. |
 | `lgfx.mjs` | The few LovyanGFX fills the corner marks use. |
 | `app.mjs`, `index.html` | The page: the prism, input, readouts, and the link to the bridge. |
 
@@ -39,10 +40,11 @@ The board's loop runs every 2 ms (its `delay(2)`) on the wall clock, so frames a
 ## What differs from the board, and why
 
 - **No Wi-Fi.** The link behaves like USB: no pairing token, `W` reports `wifi=off`, and `w` answers an error instead of saving and restarting. There is no internet clock, so offline the board knows the time only from the bridge's heartbeat (which is what a board without Wi-Fi set up does).
-- **Time and memory are this machine's.** `draw_ms` is the JavaScript renderer on this computer; the board's own is measured only on the board. There is no PSRAM limit, so a clip never fails with "out of memory". A background tab is throttled by the browser: time keeps (it is the wall clock), but the loop runs less often until the tab is shown again.
+- **Time and memory are this machine's.** `draw_ms` is the JavaScript renderer on this computer; the board's own is measured only on the board. The page inflates a file's compressed frames when it arrives (the browser inflates only asynchronously), so its `draw_ms` leaves out the inflating the board does as it draws. There is no PSRAM limit, so a clip never fails with "out of memory". A background tab is throttled by the browser: time keeps (it is the wall clock), but the loop runs less often until the tab is shown again.
 - **The motion sensor is a click.** One sample of 1 g per click; the board's continuous noise is not modelled, so `i` reports a peak of 0 when nothing was tapped in the last 4 s.
 - **The corner marks are close, not exact.** They use the classic midpoint and scanline fills; LovyanGFX's own may differ by a pixel at an edge. Nothing checks them against LovyanGFX.
 - **The art is the file.** The board maps the whole art partition and bounds-checks against it; the page checks against the file.
+- **A deflate stream with bytes after its end.** The board's tinfl and Node's zlib ignore them; the browser's `DecompressionStream` refuses the frame. The bake never writes one: only a file made by hand has them.
 - **Undefined behaviour is reported, not copied.** Where the firmware would read out of bounds (a mood the art does not have, asked for by `autoBehaviour` or the demo), the page lists it and does nothing.
 
 ## Checks
@@ -52,12 +54,15 @@ cd emulator && node --test                       # the board on a fake clock, an
 python3 -m unittest discover -s tests            # the bridge, its emulator link included (from the repository root)
 node emulator/checks/vec_fidelity.mjs [file]     # every instruction frame through vec.mjs and through tools/vec_check.cpp
 node emulator/checks/glyph_fidelity.mjs file [refs]   # every glyph frame through glyphs.mjs and tools/glyph_check.cpp, and against Chrome's pictures (the bake's --refs)
+node emulator/checks/pack_fidelity.mjs file [--time]  # every compressed frame inflated by the emulator, the page's way and tools/pack_check.cpp (the ROM's tinfl)
 node emulator/checks/e2e.mjs --sheet out.png     # the real bridge and the page in headless Chromium, with a contact sheet
 ```
 
 - `tests/board.test.mjs`: parsing (and that every truncated file fails cleanly), the state graph's routes, the timeouts (alert to waiting at 45 s, working to longhaul at 10 minutes, offline at a minute, offline fidgets), taps and gags, the clip store and its eviction, colour, corner marks, backlight and the replies' format. Nothing to install.
 - `tests/glyphs.test.mjs`: version 6 (its atlas and glyph frames parsed, every truncation and damage refused cleanly), known pixels, clipping, drawing order, a clip's own atlas, and the emulator against `glyphs.h`.
-- `vec_fidelity.mjs` builds `tools/vec_check.cpp` with clang++ (as the bake does) and hands it the emulator's picture of each frame as the reference, with the bake's tolerance (mean 2% of full scale, 300 pixels far off).
+- `tests/packed.test.mjs`: version 7 (every kind of frame compressed, alone or after a base, drawn as its uncompressed twin; every truncation and damaged head refused when the file is read; every damaged byte of a deflate refused when drawn, or drawn exactly), the window's reuse of a base, a clip with its own bases, the page's way of inflating, and the emulator against `packed.h` with the ROM's tinfl, damaged bytes included.
+- `vec_fidelity.mjs` builds `tools/vec_check.cpp` with clang++ (as the bake does) and hands it the emulator's picture of each frame as the reference, with the bake's tolerance (mean 2% of full scale, 300 pixels far off). It and `glyph_fidelity.mjs` inflate compressed frames first, as the emulator does.
+- `pack_fidelity.mjs` builds `tools/pack_check.cpp` (the firmware's `packed.h` with `tools/tinfl.h`, the ROM's miniz 1.15) and compares, byte for byte, what it, the emulator and the page's way of inflating make of every compressed frame; `--time` adds this machine's inflate times.
 - `e2e.mjs` starts the bridge in emulator mode on a free port with a temporary home, opens the page in Chromium (`$CHROME`, else Playwright's cached headless shell) over the DevTools protocol, posts hooks with the same curl command the installed hooks use, clicks the prism, sends a clip, and removes its temporary folders.
 
 ## The test card
@@ -87,4 +92,4 @@ nice -n 19 python3 tools/export_frames.py --bake --page emulator/testcard/index.
 nice -n 19 python3 tools/export_frames.py --page emulator/testcard/index.html --clip ping --define emulator/testcard/ping.json --out emulator/testcard/ping.clip
 ```
 
-The card keeps to what `vec.h` draws exactly: a negative `lineDashOffset` is ignored by it, and strokes under a squash are only approximated, so frames using either fall back to pixels.
+The card keeps to what `vec.h` draws exactly: a negative `lineDashOffset` is ignored by it, and strokes under a squash are only approximated, so frames using either fall back to pixels. Both files are version 7, every frame compressed (the card is 51,703 bytes, its 787 frames the same as when it was 152,408 bytes uncompressed).
