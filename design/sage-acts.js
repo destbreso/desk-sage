@@ -118,6 +118,18 @@
       nod: t >= 124 ? q(3 * Math.sin(Math.PI * seg(t, 124, 140)), 0.5) : 0, antenna: t >= 116 ? 1 : 0.7, camX: 14, zoom: 0.88, things: crates };
   }, 1);
 
+  // ── made of the rain: Sage forming out of the website's glyphs, dissolving into them, or staying made of them ──
+  const idlePose = (t) => loopAt.idle(t);
+  act("glyph_form", 96, (t) => ({ ...idlePose(t), glyph: { mode: "form", reveal: q(ease(seg(t, 0, 64)), 0.02), rain: q(0.9 - 0.6 * seg(t, 0, 64), 0.05), blend: q(seg(t, 76, 96), 0.05) } }), 1);
+  act("glyph_dissolve", 96, (t) => ({ ...idlePose(t), mood: "calm", glyph: { mode: "dissolve", reveal: q(1 - ease(seg(t, 16, 80)), 0.02), rain: q(0.3 + 0.6 * seg(t, 16, 80), 0.05), blend: q(1 - seg(t, 0, 16), 0.05) } }), 1);
+  act("glyph_mode", 120, (t) => ({ ...idlePose(t), glyph: { mode: "full", reveal: 1, rain: 0.35 } }), 1);
+  act("glyph_rain", 192, (t) => {
+    const out = t < 72, back = t >= 100;
+    return { ...idlePose(t), glyph: out ? { mode: "dissolve", reveal: q(1 - ease(seg(t, 12, 72)), 0.02), rain: q(0.3 + 0.6 * seg(t, 12, 72), 0.05), blend: q(1 - seg(t, 0, 12), 0.05) }
+      : back ? { mode: "form", reveal: q(ease(seg(t, 100, 160)), 0.02), rain: q(0.9 - 0.6 * seg(t, 100, 160), 0.05), blend: q(seg(t, 170, 192), 0.05) }
+      : { mode: "form", reveal: 0, rain: 0.9 } };
+  }, 1);
+
   // ── camera acts: the camera moves, Sage stays itself ──
   // the camera goes all the way round it while it keeps its eyes on you
   act("cam_orbit", 144, (t) => ({ orbit: round((2 * Math.PI * t) / 144, 0.02), headYaw: round(-Math.sin((2 * Math.PI * t) / 144) * 0.6, 0.02), tilt: 0.25, antenna: 0.85 }), 1);
@@ -144,7 +156,9 @@
   function atSeq(k, tick) { return at(k, Math.max(0, Math.min(tick, seqLen(k) - 1))); }
   function render(ctx, _mood, id, tick) {
     ctx.fillStyle = "#000000"; ctx.fillRect(0, 0, 240, 240);
-    SageDraw.drawSage(ctx, D[id], tick);
+    // (a drawing made of the rain's glyphs goes through design/sage-glyphs.js, the rest is drawn as instructions)
+    if (D[id].glyph && window.SageGlyphs) SageGlyphs.draw(ctx, D[id], tick);
+    else SageDraw.drawSage(ctx, D[id], tick);
   }
   const meta = () => ({
     moments: MOMENTS.map((m) => ({ name: m, base: MOMENTS.indexOf(BASE[m]) })),
