@@ -1,0 +1,7 @@
+{"ping": {"home": "idle", "seq": [
+  ["in:working@0", 1], ["in:working@1", 1], ["in:working@2", 1], ["in:working@3", 1], ["loop:working@0", 8],
+  ["in:alert@0", 1], ["in:alert@1", 1], ["in:alert@2", 1], ["in:alert@3", 1], ["loop:alert@0", 8],
+  ["in:done@0", 1], ["in:done@1", 1], ["in:done@2", 1], ["in:done@3", 1], ["loop:done@0", 8],
+  ["in:letter@0", 1], ["in:letter@1", 1], ["in:letter@2", 1], ["in:letter@3", 1], ["loop:letter@0", 8],
+  ["in:idle@0", 1], ["in:idle@1", 1], ["in:idle@2", 1], ["in:idle@3", 1]
+]}}

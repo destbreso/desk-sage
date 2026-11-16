@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Test card</title>
+<style>
+  :root { color-scheme: dark; --bg: #0b0d10; --fg: #d8dde4; --muted: #8a93a0; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 ui-monospace, Menlo, monospace; }
+  main { max-width: 1100px; margin: 0 auto; padding: 24px 16px; }
+  p { color: var(--muted); max-width: 70ch; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 16px; }
+  figure { margin: 0; }
+  canvas { width: 100%; aspect-ratio: 1; background: #000; border-radius: 8px; display: block; }
+  figcaption { margin-top: 4px; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Test card</h1>
+  <p>Abstract stand-ins for a character, one per mood, for baking with tools/export_frames.py and playing in the emulator. Shape and colour say which mood it is; the bar under each is drawn in the body-colour marker, so the board's colour command repaints it.</p>
+  <div class="grid" id="grid"></div>
+</main>
+<script>
+// The page tools/export_frames.py bakes from (window.__lump): every mood the firmware and the bridge
+// name, drawn as plain geometry, with a transition between every pair of base moods, the events the
+// firmware calls by name (fidgets, hello, oops, the tap gags, meeting prep, the night startle) and,
+// through L.CLIPS (--define), clips made of these drawings. A drawing is named by an id and depends on
+// nothing else, so frames that look the same are stored once.
+(() => {
+  const CX = 120, CY = 108, TAU = Math.PI * 2;
+  const q16 = v => Math.round(v * 16) / 16, q256 = v => Math.round(v * 256) / 256;   // what the bake stores, so the browser draws the same
+  const MOODS = ['idle', 'working', 'alert', 'waiting', 'done', 'longhaul', 'night', 'meeting', 'awake', 'letter'];
+  const BASE = { waiting: 'alert', longhaul: 'working' };
+  const BASES = MOODS.filter(m => !BASE[m]);
+  const LOOP_LEN = { idle: 48, working: 48, alert: 48, waiting: 48, done: 48, longhaul: 72, night: 72, meeting: 48, awake: 72, letter: 48 };
+  // none of these is a pink or a purple, which the board would take for the body colour
+  const COL = { idle: '#3dd6c6', working: '#ffb000', alert: '#ff6a00', waiting: '#ff3b30', done: '#4cd964', longhaul: '#c88a00',
+                night: '#8fb8ff', meeting: '#3d8bff', awake: '#fff1dc', letter: '#a8e6ff' };
+  const GAGS = ['shock', 'moto', 'wolf', 'accordion', 'anvil', 'disco', 'banana', 'balloon', 'sneeze', 'moon', 'bomb'];   // main.cpp's pickTap()
+  const DAYTIME = ['idle', 'working', 'alert', 'done', 'awake', 'letter'];   // waiting and longhaul fall back to their base's
+  const TRANS_LEN = 8;
+  let tint = '#FF7A45';
+
+  const EVENTS = [
+    { name: 'hello', home: 'idle', d: 'hello', len: 30 },
+    { name: 'oops', home: 'working', d: 'oops', len: 24 },
+    { name: 'fidget_toss', home: 'idle', d: 'toss', len: 24 },
+    { name: 'fidget_twitch', home: 'idle', d: 'twitch', len: 16 },
+    { name: 'fidget_bubble', home: 'idle', d: 'bubble', len: 30 },
+    // every gag shares one drawing per mood: the emulator's readout names the gag the board picked
+    ...DAYTIME.flatMap(m => GAGS.map(g => ({ name: `tap_${g}_${m}`, home: m, d: `ripple:${m}:gag`, len: 16 }))),
+    ...[...DAYTIME, 'meeting'].map(m => ({ name: `tap_prep_${m}`, home: m, d: `ripple:${m}:prep`, len: 16 })),
+    { name: 'tap_startle_night', home: 'night', d: 'startle', len: 16 },
+  ];
+
+  // ---- drawing ----
+  let A = 1;                                       // the alpha everything is drawn at (a transition fades it)
+  const alpha = (c, a) => { c.globalAlpha = A * a; };
+  const disc = (c, x, y, r) => { c.beginPath(); c.arc(q16(x), q16(y), q16(r), 0, TAU); };
+  const shape = (c, pts) => { c.beginPath(); pts.forEach(([x, y], i) => i ? c.lineTo(q16(x), q16(y)) : c.moveTo(q16(x), q16(y))); c.closePath(); };
+  const tri = (cx, cy, r) => [-90, 30, 150].map(a => [cx + r * Math.cos(a * Math.PI / 180), cy + r * Math.sin(a * Math.PI / 180)]);
+  const star = (cx, cy, n, R, r, rot) => Array.from({ length: 2 * n }, (_, i) => { const a = rot + i * Math.PI / n - Math.PI / 2, d = i % 2 ? r : R; return [cx + d * Math.cos(a), cy + d * Math.sin(a)]; });
+  const hole = (c, x, y, r) => { c.beginPath(); c.rect(0, 0, 240, 240); c.arc(q16(x), q16(y), q16(r), 0, TAU, true); c.clip(); };   // keep what is outside the circle
+
+  function pose(c, m, ph) {                        // mood m's look at phase ph (0..1) of its loop
+    const col = COL[m], s1 = Math.sin(TAU * ph);
+    c.fillStyle = col; c.strokeStyle = col; alpha(c, 1);
+    if (m === 'idle') {
+      const R = 34 + 3 * s1;
+      alpha(c, 0.35); c.lineWidth = 2; disc(c, CX, CY, R + 12); c.stroke();
+      alpha(c, 1); disc(c, CX, CY, R); c.fill();
+    } else if (m === 'working' || m === 'longhaul') {
+      const slow = m === 'longhaul';
+      if (slow) { alpha(c, 0.45); c.lineWidth = 2; c.beginPath(); c.ellipse(CX, CY, 74, 24, -0.2, 0, TAU); c.stroke(); }
+      c.save(); alpha(c, 1); c.translate(CX, CY); c.rotate(ph * Math.PI / 2); c.beginPath(); c.rect(-32, -32, 64, 64); c.fill(); c.restore();
+      if (slow) {
+        const t = TAU * ph, cr = Math.cos(-0.2), sr = Math.sin(-0.2), ux = 74 * Math.cos(t), uy = 24 * Math.sin(t);
+        alpha(c, 1); disc(c, CX + ux * cr - uy * sr, CY + ux * sr + uy * cr, 5); c.fill();
+      } else {
+        c.setLineDash([6, 6]); c.lineDashOffset = (ph * 24) % 12;    // vec.h ignores a negative offset c.lineWidth = 3; alpha(c, 0.6);
+        disc(c, CX, CY, 50); c.stroke(); c.setLineDash([]); c.lineDashOffset = 0;
+      }
+    } else if (m === 'alert') {
+      const p2 = (2 * ph) % 1, k = 1 + 0.06 * Math.sin(TAU * 2 * ph);
+      alpha(c, 1 - p2); c.lineWidth = 3; disc(c, CX, CY + 4, 50 + 16 * p2); c.stroke();
+      alpha(c, 1); shape(c, tri(CX, CY + 4, 42 * k)); c.fill();
+    } else if (m === 'waiting') {
+      c.save(); c.translate(CX, CY + 25); c.rotate(0.22 * s1); c.translate(-CX, -(CY + 25));
+      shape(c, tri(CX, CY + 4, 42)); c.fill(); c.restore();
+      for (let i = 0; i < 3; i++) { alpha(c, Math.floor(ph * 3) === i ? 1 : 0.3); disc(c, 104 + 16 * i, 170, 4); c.fill(); }
+    } else if (m === 'done') {
+      alpha(c, 0.55 + 0.45 * Math.sin(TAU * 2 * ph)); c.lineWidth = 3; c.beginPath();
+      for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4 + ph * Math.PI / 4; c.moveTo(q16(CX + 54 * Math.cos(a)), q16(CY + 54 * Math.sin(a))); c.lineTo(q16(CX + 64 * Math.cos(a)), q16(CY + 64 * Math.sin(a))); }
+      c.stroke();
+      alpha(c, 1); shape(c, star(CX, CY, 5, 44, 19, ph * TAU / 5)); c.fill();
+    } else if (m === 'night') {
+      const bob = 4 * s1;
+      c.fillStyle = '#fff1dc';
+      [[52, 56], [186, 48], [196, 150], [44, 160]].forEach(([x, y], i) => { alpha(c, 0.3 + 0.7 * (0.5 + 0.5 * Math.sin(TAU * (2 * ph + i / 4)))); disc(c, x, y, 2.5); c.fill(); });
+      c.fillStyle = col; alpha(c, 1);
+      c.save(); hole(c, CX + 16, CY - 12 + bob, 30); disc(c, CX, CY + bob, 38); c.fill(); c.restore();
+    } else if (m === 'meeting') {
+      c.save(); hole(c, CX, CY, 22); disc(c, CX, CY, 40 + 2 * s1); c.fill(); c.restore();
+      c.fillStyle = '#eaf2ff'; c.fillRect(CX - 30, CY - 6, 60, 12);
+    } else if (m === 'awake') {
+      const blink = ph >= 0.8 && ph < 0.92 ? q256(1 - 0.8 * Math.sin(Math.PI * (ph - 0.8) / 0.12)) : 1;
+      c.save(); c.translate(CX, CY); c.scale(1, blink); shape(c, [[0, -40], [40, 0], [0, 40], [-40, 0]]); c.fill(); c.restore();
+      const x = CX + 36, y = CY - 36, s = 10 * (0.6 + 0.4 * Math.sin(TAU * 2 * ph));
+      const P = [[0, -1], [1, 0], [0, 1], [-1, 0]];     // a four-pointed sparkle, its sides curving in
+      c.fillStyle = '#ffffff'; c.beginPath(); c.moveTo(q16(x), q16(y - s));
+      for (let i = 0; i < 4; i++) {
+        const [ax, ay] = P[i], [bx, by] = P[(i + 1) % 4], kx = q16(x + 0.12 * s * (ax + bx)), ky = q16(y + 0.12 * s * (ay + by));
+        c.bezierCurveTo(kx, ky, kx, ky, q16(x + bx * s), q16(y + by * s));
+      }
+      c.fill();
+    } else if (m === 'letter') {
+      const x0 = CX - 44, y0 = q16(CY - 28 + 4 * s1);
+      c.beginPath(); c.roundRect(x0, y0, 88, 58, 6); c.fill();
+      c.save(); c.beginPath(); c.rect(x0, y0, 88, 58); c.clip();
+      c.strokeStyle = '#0b3a4a'; c.lineWidth = 4; c.beginPath(); c.moveTo(x0 - 2, y0 + 2); c.lineTo(CX, y0 + 34); c.lineTo(x0 + 90, y0 + 2); c.stroke(); c.restore();
+    }
+  }
+
+  function around(c, x, y, sx, sy, rot, fn) {      // draw fn scaled and turned about (x, y)
+    c.save(); c.translate(q16(x), q16(y)); if (rot) c.rotate(rot); if (sx !== 1 || sy !== 1) c.scale(q256(sx), q256(sy)); c.translate(-q16(x), -q16(y)); fn(); c.restore();
+  }
+  function ring(c, colour, r, a) { if (a <= 0) return; c.strokeStyle = colour; alpha(c, a); c.lineWidth = 4; disc(c, CX, CY, r); c.stroke(); }
+
+  function draw(c, what, k) {
+    const [kind, a, b] = what.split(':');
+    const SIZE = [0.86, 0.70, 0.54, 0.38], FADE_OUT = [0.85, 0.65, 0.45, 0.25], FADE_IN = [0.3, 0.5, 0.7, 0.9];
+    if (kind === 'loop') return pose(c, a, k / LOOP_LEN[a]);
+    if (kind === 'out') {                          // the mood shrinks away, turning...
+      A = FADE_OUT[k]; around(c, CX, CY, SIZE[k], SIZE[k], (k + 1) * 0.12, () => pose(c, a, 0)); A = 1; return;
+    }
+    if (kind === 'in') {                           // ...and the next one grows in, turning the other way
+      A = FADE_IN[k]; around(c, CX, CY, SIZE[3 - k], SIZE[3 - k], -(4 - k) * 0.12, () => pose(c, a, 0)); A = 1; return;
+    }
+    if (kind === 'hello') {
+      pose(c, 'idle', 0);
+      for (let j = 0; j < 3; j++) { const p = (k - j * 6) / 18; if (p > 0 && p < 1) ring(c, COL.idle, 40 + 70 * p, 0.9 * (1 - p)); }
+      return;
+    }
+    if (kind === 'oops') {
+      const dx = q16(8 * Math.sin(k * Math.PI / 2) * (1 - k / 24));
+      around(c, CX, CY, 1, 1, 0, () => { c.translate(dx, 0); pose(c, 'working', 0);
+        if (k < 12) { c.strokeStyle = COL.waiting; alpha(c, 1 - k / 12); c.lineWidth = 4; c.beginPath(); c.rect(CX - 32, CY - 32, 64, 64); c.stroke(); }
+        if (k >= 4) { c.strokeStyle = '#3a2600'; alpha(c, 1); c.lineWidth = 3; c.beginPath(); c.moveTo(CX - 20, CY - 30);
+          c.quadraticCurveTo(CX + 6, CY - 14, CX - 6, CY); c.quadraticCurveTo(CX - 18, CY + 14, CX + 14, CY + 30); c.stroke(); } });
+      return;
+    }
+    if (kind === 'toss') {
+      const y = -46 * Math.sin(Math.PI * k / 23), squash = k < 3 || k > 20 ? 0.86 : 1;
+      around(c, CX, CY + 34 + y, 2 - squash, squash, 0, () => { c.translate(0, q16(y)); pose(c, 'idle', 0); });
+      return;
+    }
+    if (kind === 'twitch') { const w = Math.sin(TAU * 2 * k / 16); around(c, CX, CY, 1 + 0.12 * w, 1 - 0.12 * w, 0, () => pose(c, 'idle', 0)); return; }
+    if (kind === 'bubble') {
+      pose(c, 'idle', 0);
+      for (let j = 0; j < 3; j++) {
+        const p = (k - 6 * j) / 18;
+        if (p < 0 || p > 1) continue;
+        c.strokeStyle = COL.idle; c.lineWidth = 2; alpha(c, 1 - p);
+        disc(c, CX - 14 + 14 * j + 6 * Math.sin(p * TAU), CY - 44 - 70 * p, 4 + 3 * p); c.stroke();
+      }
+      return;
+    }
+    if (kind === 'ripple') {                       // a tap: the mood flinches and a ring goes out (blue for meeting prep)
+      const p = k / 15, colour = b === 'prep' ? COL.meeting : '#ffffff';
+      const f = 1 - 0.12 * Math.sin(Math.PI * p);     // a uniform flinch: vec.h strokes and dashes under a squash only approximately
+      around(c, CX, CY, f, f, 0, () => pose(c, a, 0));
+      ring(c, colour, 44 + 56 * p, 1 - p);
+      if (b === 'prep') ring(c, colour, 44 + 56 * (p - 0.3), 0.7 - p);
+      return;
+    }
+    if (kind === 'startle') {
+      const p = k / 15, dx = 3 * Math.sin(k * 2.5) * (1 - p), dy = -10 * Math.sin(Math.PI * p);
+      around(c, CX, CY, 1, 1, 0, () => { c.translate(q16(dx), q16(dy)); pose(c, 'night', 0); });
+      if (k < 10) {
+        c.strokeStyle = '#ffffff'; alpha(c, 1 - k / 10); c.lineWidth = 2; c.beginPath();
+        for (let i = 0; i < 4; i++) { const t = -Math.PI / 2 + (i - 1.5) * 0.5; c.moveTo(q16(CX + 50 * Math.cos(t)), q16(CY + 50 * Math.sin(t))); c.lineTo(q16(CX + 62 * Math.cos(t)), q16(CY + 62 * Math.sin(t))); }
+        c.stroke();
+      }
+    }
+  }
+
+  function render(c, fx, id) {
+    const at = id.lastIndexOf('@'), what = id.slice(0, at), k = Number(id.slice(at + 1));
+    c.setTransform(1, 0, 0, 1, 0, 0); c.lineCap = 'round'; c.lineJoin = 'round';   // the board strokes with round ends and corners only
+    c.globalAlpha = 1; c.setLineDash([]); c.lineDashOffset = 0;
+    c.fillStyle = '#000000'; c.fillRect(0, 0, 240, 240);
+    A = 1; draw(c, what, k); A = 1;
+    c.globalAlpha = 1; c.fillStyle = tint; c.beginPath(); c.roundRect(84, 190, 72, 8, 4); c.fill();
+  }
+
+  // ---- the sequences ----
+  const L = { CLIPS: {} };                         // name -> {home, seq: [[drawing id, ticks], ...]}, from --define
+  function seqs() {
+    const out = MOODS.map(m => ({ key: m, name: m, kind: 0, from: m, to: m }));
+    const pairs = BASES.flatMap(a => BASES.filter(b => b !== a).map(b => [a, b]));
+    pairs.push(['alert', 'waiting'], ['waiting', 'alert'], ['working', 'longhaul'], ['longhaul', 'working']);
+    for (const [a, b] of pairs) out.push({ key: `T:${a}:${b}`, name: `${a}_to_${b}`, kind: 1, from: a, to: b });
+    for (const e of EVENTS) out.push({ key: `E:${e.name}`, name: e.name, kind: 2, from: e.home, to: e.home });
+    for (const [name, def] of Object.entries(L.CLIPS)) out.push({ key: `C:${name}`, name, kind: 2, from: def.home, to: def.home });
+    return out;
+  }
+  const event = name => EVENTS.find(e => e.name === name);
+  Object.assign(L, {
+    setLine() {},
+    setTint(hex) { tint = hex; },
+    meta() { return { moments: MOODS.map(m => ({ name: m, base: MOODS.indexOf(BASE[m] || m) })), seqs: seqs() }; },
+    seqLen(key) {
+      if (LOOP_LEN[key]) return LOOP_LEN[key];
+      const [kind, name] = key.split(':');
+      if (kind === 'T') return TRANS_LEN;
+      if (kind === 'E') return event(name).len;
+      return L.CLIPS[name].seq.reduce((n, [, ticks]) => n + ticks, 0);
+    },
+    at(key, t) { return { id: `loop:${key}@${t % LOOP_LEN[key]}` }; },
+    atSeq(key, t) {
+      const [kind, a, b] = key.split(':');
+      if (kind === 'T') return { id: t < TRANS_LEN / 2 ? `out:${a}@${t}` : `in:${b}@${t - TRANS_LEN / 2}` };
+      if (kind === 'E') return { id: `${event(a).d}@${t}` };
+      for (const [id, ticks] of L.CLIPS[a].seq) { if (t < ticks) return { id }; t -= ticks; }
+    },
+    fxFor(id) { return id.split(/[:@]/)[0]; },
+    render(c, fx, id) { render(c, fx, id); },
+  });
+  window.__lump = L;
+
+  // ---- opened by hand: every mood's loop ----
+  addEventListener('DOMContentLoaded', () => {
+    if (window.__lumpExport) return;               // baking: the export script draws
+    const grid = document.getElementById('grid'), cards = MOODS.map(m => {
+      const f = document.createElement('figure'), cv = document.createElement('canvas');
+      cv.width = cv.height = 240; f.append(cv, Object.assign(document.createElement('figcaption'), { textContent: m }));
+      grid.append(f);
+      return { m, c: cv.getContext('2d') };
+    });
+    const start = performance.now();
+    (function frame(now) {
+      const t = Math.floor((now - start) / (1000 / 24));
+      for (const { m, c } of cards) render(c, m, L.at(m, t).id);
+      requestAnimationFrame(frame);
+    })(start);
+  });
+})();
+</script>
+</body>
+</html>
