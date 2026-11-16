@@ -21,7 +21,7 @@ It is public, and it names no other project or repository of the author's: only 
 - What comes into its world is made for it (its materials, its green, the website's marks, the room's objects), never an emoji or a stock picture. Its worlds are several: the things that come for the author's work (a glitch, the prompt, its modules), the Game of Life on its desk, what it projects as a hologram (as its mind shows on the website), the rain's glyphs. No one theme takes over all the acts.
 - Nothing is lost: an act redone keeps the old one beside it as a variant, under a name of its own, unless the author says to drop it. When three acts were redone as Life on the desk, the originals went and the author asked for them back.
 - Nothing here says how Sage is found on the website.
-- Before a look is baked or changed at scale, show the author a sheet (the reference, now, the proposal) and wait for the yes.
+- Before a look is baked or changed at scale, show the author a sheet (the reference, now, the proposal) and wait for the yes. Every sheet is kept in `design/sheets/`, numbered after the last, with a line in its README saying what it shows and what was decided: they are the reference for every look after.
 - The README's gallery images carry a fingerprint of their content (`?v=` and the first eight characters of the GIF's SHA-1): after drawing the GIFs again, update every fingerprint, or GitHub's image proxy and browsers keep showing the old ones.
 
 ## No hardware yet
