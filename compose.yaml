@@ -1,0 +1,13 @@
+# Sage in the emulator, with nothing installed but Docker: `docker compose up`, then open
+# http://127.0.0.1:47823/emulator/ (README, Trying it). Hooks installed on this machine post to the same port.
+services:
+  sage:
+    build: .
+    image: desk-sage-emulator
+    ports:
+      # this machine only: the bridge has no login, so it is never published to the network
+      - "127.0.0.1:${SAGE_PORT:-47823}:${SAGE_PORT:-47823}"
+    # the same port inside and out: the emulator's page is answered only on the address it was opened from
+    command: ["python3", "tools/buddy_bridge.py", "--emulator", "--listen", "0.0.0.0", "--port", "${SAGE_PORT:-47823}"]
+    tty: true          # the bridge logs to the terminal only when it has one
+    restart: unless-stopped

@@ -10,6 +10,7 @@ python3 tools/buddy_bridge.py --emulator
 
 Then open http://127.0.0.1:47823/emulator/. The bridge serves the page itself, so the page and the bridge are the same origin. Run it from a checkout of this repository (the copy `tools/install_bridge.sh` installs has no `emulator/` beside it), and stop a bridge already running as a login item first: both want port 47823, which is where the Claude Code hooks post (`tools/install_hooks.py`). With the hooks installed, real Claude Code sessions drive the page.
 
+- With Docker, `docker compose up` at the repository's root runs the same in a container: the bridge in emulator mode, Sage's mind, and the page at the same address. Inside it the bridge listens on every address (`--listen 0.0.0.0`), and `compose.yaml` publishes the port to this machine only, since the bridge has no login. Stop a native bridge first, as both want port 47823. `SAGE_PORT` moves the port inside and out together (the page is answered only on the address it was opened from), but the hooks still post to 47823. In the container the bridge has none of the Mac's senses: the Claude app, idle and sounds are not watched.
 - `--art FILE` chooses the `.bin` the page plays. Without it the bridge takes `"art"` in its `config.json`, else `firmware/data/sage.bin`, else the test card (`emulator/testcard/testcard.bin`).
 - `--port N` serves on another port (the hooks still post to 47823).
 - `"emulator": true` in `~/.desk-buddy/config.json` does the same as `--emulator`.

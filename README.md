@@ -14,6 +14,16 @@ Here's what you'll find in this repository:
 - **The hardware** ([hardware/index.html](hardware/index.html)) shows the board, its display and the prism in 3D at their real size. You can turn it around, take it apart down to the smallest piece and put it back together.
 - **The tools** bake the drawings into frames, check every frame against the browser's own drawing, update the board over the air and print the stand.
 
+## Try it
+
+You don't need the board to see Sage. If you have Docker, run this in a clone of this repository:
+
+```sh
+docker compose up
+```
+
+Then open http://127.0.0.1:47823/emulator/. Install the Claude Code hooks with `python3 tools/install_hooks.py` and your own sessions drive it. If a bridge is already running on your Mac, stop it first, because both use the same port. Without Docker, `python3 tools/buddy_bridge.py --emulator` does the same thing. The [emulator's README](emulator/README.md) has the rest.
+
 ## Gallery
 
 This is Sage the way the board will show it. Every animation here went through the same bake that writes its frames for the board. On the prism the black around it turns to glass, so it looks like it's floating.
@@ -52,11 +62,12 @@ The one on the right is the emulator in its Realistic mode. Sage plays in the pr
 - [x] Its antenna going dark when it can't hear my Mac
 - [x] The real firmware running in a simulated ESP32-S3, so it's tested before the board arrives
 - [x] The emulator showing the whole device in 3D, with Sage alive in its prism, and a switch to cut the bridge and bring it back
+- [x] One `docker compose up` to try it with nothing installed
 - [ ] Its own voice, played on the Mac
 - [ ] More of my day as its senses: subagents, renders, permissions waiting on me, the site going live, me stepping away
 - [ ] Holograms that show the real numbers, like the time, my tests and its battery
 - [ ] A gallery page with every animation and what sets it off
-- [ ] One `docker compose up` to try it with nothing installed, and the tools pinned so a bake gives the same frames on any machine
+- [ ] The tools pinned, so a bake gives the same frames on any machine
 - [ ] The board itself, flashed and measured, sitting on my desk
 
 The phases and the open questions are in [docs/ROADMAP.md](docs/ROADMAP.md). What's already done, and how it was checked, is in [docs/HISTORY.md](docs/HISTORY.md).
