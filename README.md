@@ -52,6 +52,7 @@ This comes from [hardware/index.html](hardware/index.html). Open it in any brows
 - [ ] More of my day as its senses: subagents, renders, permissions waiting on me, the site going live, me stepping away
 - [ ] Holograms that show the real numbers, like the time, my tests and its battery
 - [ ] A gallery page with every animation and what sets it off
+- [ ] The real firmware running in a simulated ESP32-S3, so it's tested before the board arrives
 - [ ] The board itself, flashed and measured, sitting on my desk
 
 The phases and the open questions are in [docs/ROADMAP.md](docs/ROADMAP.md). What's already done, and how it was checked, is in [docs/HISTORY.md](docs/HISTORY.md).
