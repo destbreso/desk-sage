@@ -6,7 +6,7 @@ Read first: `README.md`, then `docs/ROADMAP.md` (only what is left, and the ques
 
 ## This repository names only destbreso.com
 
-It is public, and it names no other project or repository of the author's: only the website. Sage's face, mood and patience come from the website's own code through `tools/sync-site.sh`, which reads the path in `SAGE_SITE` on the author's machine; anything that depends on one of the author's other projects (a mark Sage shows for it, a command it reacts to) lives in the bridge's local config, never in this repository.
+It is public, and it names no other project or repository of the author's: only the website, and the public tools it is built with (Dissect, which makes `docs/figures/flow.html`; the author, 2026-11-17), as it would name three.js. Sage's face, mood and patience come from the website's own code through `tools/sync-site.sh`, which reads the path in `SAGE_SITE` on the author's machine; anything that depends on one of the author's other projects (a mark Sage shows for it, a command it reacts to) lives in the bridge's local config, never in this repository.
 
 ## Sage is not open source
 
