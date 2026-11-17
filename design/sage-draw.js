@@ -11,7 +11,7 @@
   const ramp = (dark, lit, n) => Array.from({ length: n }, (_, i) => mixc(dark, lit, i / (n - 1)));
   // Tones for the prism: black turns to glass, so the graphite and rubber are lifted from the room's or they vanish.
   const SHELL = ramp("#a99f8d", "#fbf8f1", 8), GRAPH = ramp("#33363c", "#8a8f98", 6), RUBBER = ramp("#1f2124", "#55585e", 5);
-  const AMBER = ramp("#8a5a1a", "#ffe1a8", 4), ANT = ramp("#4f8a4b", "#d8f7d2", 4), PAPER = ramp("#bdb3a0", "#f6f1e6", 4), PAD = ramp("#24312a", "#4a6656", 4);
+  const DEAD = ramp("#2a2d31", "#6b7078", 4), AMBER = ramp("#8a5a1a", "#ffe1a8", 4), ANT = ramp("#4f8a4b", "#d8f7d2", 4), PAPER = ramp("#bdb3a0", "#f6f1e6", 4), PAD = ramp("#24312a", "#4a6656", 4);
   const T = { green: SAGE_GREEN, amber: "#ffb347", heart: "#ff3b5c", ink: "#8f8676", seam: "#8f8676", hole: "#16181b", holeLit: "#7d828b", screw: "#9aa0a8", hub: "#b9bdc4", tread: "#17181a", rim: "#cfe8d6" };
 
   // The camera: `z` 0 shows the whole of it, 1 its head close.
@@ -24,7 +24,7 @@
     // (a camera a little above it by default, so the desk and what lies on it read)
     tilt: 0.12, orbit: 0, zoom: 1, camX: 0, camY: 0, things: null, bar: 0, footSide: 1, squash: 0, antennaBend: 0, bow: 0,
     mood: "calm", look: [0, 0], shut: 0, squeezed: false, eyes: null, antenna: 0.7,
-    book: 0, page: 0, light: 0, charger: 0, signal: 0, rise: 0, burst: 0, hearts: 0, amber: false, holo: null, projecting: 0, flare: 0, shutter: 1,
+    book: 0, page: 0, light: 0, charger: 0, signal: 0, rise: 0, burst: 0, hearts: 0, amber: false, holo: null, projecting: 0, flare: 0, shutter: 1, offline: 0, relink: 0,
   };
 
   /**
@@ -305,7 +305,15 @@
       const b = up + p.antennaBend, tx = base[0] + Math.sin(b) * L, ty = base[1] - Math.cos(b) * L, mx = base[0] + Math.sin(up + p.antennaBend * 0.35) * L * 0.55, my = base[1] - Math.cos(up + p.antennaBend * 0.35) * L * 0.55, kk = base[3];
       gg.lineCap = "round"; gg.strokeStyle = GRAPH[2]; gg.lineWidth = Math.max(1.5, 2.4 * kk); gg.beginPath(); gg.moveTo(base[0], base[1]); gg.quadraticCurveTo(mx, my, tx, ty); gg.stroke();
       gg.strokeStyle = GRAPH[5]; gg.lineWidth = Math.max(1, 0.7 * kk); gg.beginPath(); gg.moveTo(base[0] - 0.6 * kk, base[1]); gg.quadraticCurveTo(mx - 0.6 * kk, my, tx - 0.6 * kk, ty); gg.stroke();
-      gg.save(); gg.globalAlpha = 0.35 + 0.65 * p.antenna; glow(gg, tx, ty, () => Sage3D.ball(gg, tx, ty, 2.8 * kk, p.amber ? AMBER : ANT, 0.6)); gg.restore();
+      if (p.offline) {
+        // no bridge: its antenna hears nothing, its ball dark; now and then a faint ring goes out, unanswered
+        Sage3D.ball(gg, tx, ty, 2.8 * kk, DEAD, 0.35);
+        const u = p.offline % 1; if (u > 0) { gg.lineCap = "round"; gg.strokeStyle = T.green; gg.lineWidth = Math.max(1, 0.6 * kk); gg.globalAlpha = 0.35 * (1 - u); gg.beginPath(); gg.arc(tx, ty, (4 + 14 * u) * kk, -Math.PI * 0.85, -Math.PI * 0.15); gg.stroke(); gg.globalAlpha = 1; }
+      } else {
+        gg.save(); gg.globalAlpha = 0.35 + 0.65 * p.antenna; glow(gg, tx, ty, () => Sage3D.ball(gg, tx, ty, 2.8 * kk, p.amber ? AMBER : ANT, 0.6)); gg.restore();
+        // the bridge back: a bright ring as its ball lights again
+        if (p.relink) for (const [lw, a] of [[3, 0.25], [1.2, 0.9]]) { gg.strokeStyle = "#e8ffe4"; gg.lineWidth = lw * kk; gg.globalAlpha = a * (1 - p.relink); gg.beginPath(); gg.arc(tx, ty, (3 + 22 * p.relink) * kk, 0, Math.PI * 2); gg.stroke(); gg.globalAlpha = 1; }
+      }
     } });
 
     // marks in the air near its head, and things floating round it (drawn facing the camera)
