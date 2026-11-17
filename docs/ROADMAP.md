@@ -39,7 +39,7 @@ The mind is built (`mind/`, its contract in `mind/README.md`, its record in `doc
 - The mind takes a tap with `battery` only: `around`, which its contract names for a tap, is left out, so it takes the author as there, which a tap means.
 - A shake: the mind takes one (being picked up, so running out there is dizzy), but the board feels none yet (Phase 6).
 - Cross on its face: the mind keeps whether Sage is cross (it then answers taps with nothing), but the board's moods are the bridge's, so its face does not show it.
-- An act queued behind another gives way to a mood sent after it (the player's rule, `settle` in `firmware/src/main.cpp`): the hello the board plays when the bridge comes back is lost if the bridge's mood arrives while the rain still plays, and so is a hello the mind plays during the form after a boot. In `node mind/checks/e2e.mjs` its first step counted the board's boot `glyph_form`, and the mind's `hello` behind it gave way to the next step's mood; the check would be exact if it waited for the boot's form to end first.
+- An act queued behind another gives way to a mood sent after it (the player's rule, `settle` in `firmware/src/main.cpp`): the hello the board plays when the bridge comes back is lost if the bridge's mood arrives while the rain still plays, and so is a hello the mind plays during the form after a boot.
 
 ## Phase 4: the author's workflow as Sage's senses
 

@@ -105,6 +105,11 @@ try {
     steps.push({ step: name, played: got, page: played.slice(n).map((p) => p.act), lines, ...(error ? { error } : {}) });
   }
 
+  // (the board forms out of the rain as it boots: let that end, so the first step is answered by the mind, not by it)
+  if ('glyph_form' in HOLDS) {
+    await waitFor('the boot form', () => played.some((p) => p.act === 'glyph_form'), 20000);
+    await sleep(1000 * HOLDS.glyph_form + 1500);
+  }
   await step('a session starts after a long quiet', () => hook('SessionStart', { source: 'startup' }), ['hello', 'glyph_form']);
   await step('a test command fails', async () => {
     hook('UserPromptSubmit', { prompt: 'run the tests' });
