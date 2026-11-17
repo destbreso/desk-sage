@@ -42,3 +42,6 @@ design/device/music/
 gallery/clips/
 gallery/lump.bin
 gallery/manifest.json
+
+# QEMU and its flash image (tools/qemu/run.sh)
+tools/qemu/.cache/
