@@ -5,7 +5,7 @@ Run with the bridge's own Python (it has pyserial):
 Nothing here touches the real board, speakers or ~/.desk-buddy: the bridge is pointed at a temp
 folder and given fake device / focus / sound objects.
 """
-import importlib.util, json, os, sys, tempfile, time, unittest
+import importlib.util, json, os, shutil, subprocess, sys, tempfile, time, unittest
 from unittest import mock
 
 HOME = tempfile.mkdtemp(prefix="deskbuddy-test-")
@@ -33,7 +33,6 @@ class FakeSounds:
     def __init__(self): self.played = []
     def settings(self): return {}
     def play(self, moment, force=False): self.played.append(moment); return True
-    def play_gag(self, event, force=False): self.played.append(event); return True
 
 
 class Clock:
@@ -165,51 +164,53 @@ class MoodRules(BridgeTest):
         self.assertEqual(self.mood(), "night")                  # then the blanket comes up
 
 
-class MeetingPrep(BridgeTest):
-    """While a meeting is coming up (or its alarm is ringing) the board is told "p 1", so a tap plays meeting prep."""
+class Meetings(BridgeTest):
+    """A meeting coming up: the colour slides to blue over its last ten minutes and the meeting mood plays at its start.
+    The board is told nothing else (Lump's meeting prep, a flag that made a tap play it, left with his taps)."""
     def meeting_in(self, secs):
         with open(bridge.MEETINGS_FILE, "w") as f:
             json.dump([{"start": self.clock() + secs, "title": "standup"}], f)
 
-    def prep_flags(self):
-        return [c for c in self.b.dev.sent if c.startswith("p ")]
+    def colours(self):
+        return [c[2:] for c in self.b.dev.sent if c.startswith("c ")]
 
-    def test_no_meeting_means_no_prep(self):
-        self.b.update()
-        self.assertEqual(self.prep_flags(), ["p 0"])
-
-    def test_countdown_turns_prep_on_then_off_after_the_alarm(self):
+    def test_the_countdown_colour_then_the_meeting_mood(self):
         self.meeting_in(30 * 60)
         self.b.update()
-        self.clock.advance(21 * 60); self.b.update()              # 9 minutes to go: countdown
-        self.clock.advance(9 * 60 + 10); self.b.update()           # alarm ringing
-        self.clock.advance(60); self.b.update()                    # alarm window over
-        self.assertEqual(self.prep_flags(), ["p 0", "p 1", "p 0"])
+        self.clock.advance(25 * 60); self.b.update()              # 5 minutes to go: half way to blue
+        self.clock.advance(5 * 60 + 10); self.b.update()           # it's time
+        self.assertEqual(self.colours()[0], bridge.DEFAULT_COLOUR)
+        self.assertNotIn(self.colours()[1], (bridge.DEFAULT_COLOUR, bridge.MEETING_COLOUR))
+        self.assertEqual(self.colours()[-1], bridge.MEETING_COLOUR)
+        self.assertEqual(self.mood(), "meeting")
+        self.assertFalse(any(c.startswith("p ") for c in self.b.dev.sent))
 
-    def test_resend_repeats_the_prep_flag(self):
-        self.meeting_in(5 * 60)
-        self.b.update(); self.b.dev.sent.clear()
-        self.b.resend()
-        self.assertIn("p 1", self.b.dev.sent)
+    def test_a_tap_at_the_alarm_silences_it(self):
+        self.meeting_in(-5)
+        self.assertEqual(self.mood(), "meeting")
+        self.b.tapped()
+        self.assertNotEqual(self.mood(), "meeting")
 
 
 class PlayOnRequest(BridgeTest):
-    def test_named_gag_plays_and_mood_is_reasserted_after(self):
-        self.assertTrue(self.b.play("Disco\n"))
-        self.assertEqual(self.b.dev.sent[-1], "e tap_disco")
+    """POST /play: an act the art holds, played as the mind's are; "tap" and "fidget" for the board to choose one."""
+    def setUp(self):
+        super().setUp()
+        self.b.acts = ["hello", "tap_hello", "fidget_look"]
+
+    def test_an_act_of_the_art_plays_and_the_mood_is_reasserted_after(self):
+        self.assertTrue(self.b.play("Hello\n"))
+        self.assertEqual(self.b.dev.sent[-1], "e hello")
         self.assertGreater(self.b.resync_at, 0)
 
-    def test_random_gag_is_left_to_the_board(self):
-        self.b.play("tap")
-        self.assertEqual(self.b.dev.sent[-1], "e tap")
+    def test_tap_and_fidget_are_the_boards_choice(self):
+        self.b.play("tap"); self.assertEqual(self.b.dev.sent[-1], "e tap")
+        self.b.play("fidget"); self.assertEqual(self.b.dev.sent[-1], "e fidget")
 
-    def test_startle_and_events_map_to_board_names(self):
-        self.b.play("startle"); self.assertEqual(self.b.dev.sent[-1], "e tap_startle_night")
-        self.b.play("hello"); self.assertEqual(self.b.dev.sent[-1], "e hello")
-
-    def test_unknown_animation_sends_nothing(self):
+    def test_an_act_the_art_lacks_or_anything_else_sends_nothing(self):
         before = list(self.b.dev.sent)
-        self.assertIsNone(self.b.play("e tap; rm -rf"))
+        for name in ("tap_shock", "disco", "e tap; rm -rf", ""):
+            self.assertIsNone(self.b.play(name), name)
         self.assertEqual(self.b.dev.sent, before)
 
     def test_playing_is_not_a_tap(self):
@@ -219,11 +220,48 @@ class PlayOnRequest(BridgeTest):
 
     def test_no_board_reports_failure(self):
         self.b.dev.send = lambda cmd, quiet=False: False
-        self.assertFalse(self.b.play("bomb"))
+        self.assertFalse(self.b.play("hello"))
 
-    def test_every_gag_has_a_name(self):
-        for g in bridge.GAGS:
-            self.assertEqual(bridge.ANIMATIONS[g], f"tap_{g}")
+    def test_what_it_lists(self):
+        self.assertEqual(self.b.playable(), ["tap", "fidget", "hello", "tap_hello", "fidget_look"])
+        self.b.acts = None                                      # the art not known: only the board's own choices
+        self.assertEqual(self.b.playable(), ["tap", "fidget"])
+        self.assertIsNone(self.b.play("hello"))
+
+
+class ArtFile(unittest.TestCase):
+    """The bridge reads the names of the art's acts from its header, as the board's parser does."""
+    ARTS = [os.path.join(bridge.ROOT, "firmware", "data", "sage.bin"), os.path.join(bridge.EMULATOR_DIR, "testcard", "testcard.bin")]
+
+    @unittest.skipUnless(shutil.which("node") or bridge.node_path(), "no node to run the emulator's parser")
+    def test_the_same_acts_as_the_boards_parser(self):
+        script = ("const { Board, EVENT } = await import(process.argv[1]); const fs = await import('node:fs');"
+                  "const buf = new Uint8Array(fs.readFileSync(process.argv[2])), b = new Board({});"
+                  "if (!b.parseArt(buf, buf.length, 0)) process.exit(1);"
+                  "console.log(JSON.stringify([...Array(b.A.nSeqs).keys()].filter(i => b.A.kind[i] === EVENT).map(i => b.A.name[i])));")
+        for art in self.ARTS:
+            out = subprocess.run([bridge.node_path(), "--input-type=module", "-e", script, os.path.join(bridge.EMULATOR_DIR, "board.mjs"), art],
+                                 capture_output=True, text=True, check=True).stdout
+            self.assertEqual(bridge.art_acts(art), json.loads(out), art)
+
+    def test_either_magic_and_nothing_else(self):
+        with open(self.ARTS[1], "rb") as f:
+            data = f.read()
+        d = tempfile.mkdtemp(prefix="deskbuddy-art-")
+        self.addCleanup(shutil.rmtree, d)
+        for name, body in (("sage.bin", b"SAGE" + data[4:]), ("other.bin", b"XXXX" + data[4:]), ("cut.bin", data[:200])):
+            with open(os.path.join(d, name), "wb") as f:
+                f.write(body)
+        self.assertEqual(bridge.art_acts(os.path.join(d, "sage.bin")), bridge.art_acts(self.ARTS[1]))
+        self.assertIn("hello", bridge.art_acts(os.path.join(d, "sage.bin")))
+        self.assertIsNone(bridge.art_acts(os.path.join(d, "other.bin")))
+        self.assertIsNone(bridge.art_acts(os.path.join(d, "cut.bin")))
+        self.assertIsNone(bridge.art_acts(os.path.join(d, "missing.bin")))
+
+    def test_the_bridge_knows_the_art_it_is_given(self):
+        b = bridge.Buddy(dev=FakeDevice(), focus=FakeFocus(), sounds=FakeSounds(), start=False, art=self.ARTS[1])
+        self.assertEqual(b.acts, bridge.art_acts(self.ARTS[1]))
+        self.assertIsNone(bridge.Buddy(dev=FakeDevice(), focus=FakeFocus(), sounds=FakeSounds(), start=False).acts)
 
 
 class AppWatcher(BridgeTest):
@@ -240,7 +278,7 @@ class AppWatcher(BridgeTest):
         self.assertEqual(self.mood(), "working")
 
     def test_a_web_page_with_its_own_stop_button_is_not_a_chat(self):
-        self.snap("Lump Gag Sounds", buttons=["Play all", "Stop"])
+        self.snap("Sound check", buttons=["Play all", "Stop"])
         self.assertEqual(self.mood(), "idle")
 
 
@@ -334,9 +372,9 @@ class DeviceLinks(unittest.TestCase):
         bridge.Device._call(bad)                                # must not raise
 
     def test_usb_first_then_wifi_when_paired(self):
-        self.write_config({"lump_token": "abcdef123456"})
+        self.write_config({"board_token": "abcdef123456"})
         with mock.patch.object(bridge.Device, "usb_ports", staticmethod(lambda: ["/dev/cu.usbmodem1"])):
-            self.assertEqual(self.device()._targets(), ["/dev/cu.usbmodem1", "socket://lump.local:4210"])
+            self.assertEqual(self.device()._targets(), ["/dev/cu.usbmodem1", "socket://sage.local:4210"])
 
     def test_no_wifi_without_pairing(self):
         self.write_config({"calendar_ics": "x"})
@@ -346,80 +384,55 @@ class DeviceLinks(unittest.TestCase):
     def test_repeated_failures_are_logged_once(self):
         d = self.device()
         with self.assertLogs("bridge", "INFO") as logs:
-            for _ in range(5): d._fail("socket://lump.local:4210", OSError("no route"))
-            d._fail("socket://lump.local:4210", OSError("refused"))
+            for _ in range(5): d._fail("socket://sage.local:4210", OSError("no route"))
+            d._fail("socket://sage.local:4210", OSError("refused"))
         self.assertEqual(len(logs.output), 2)
 
 
-class GagSoundTest(unittest.TestCase):
-    """The board says "gag tap_<gag>_<mood>" when a gag starts; the bridge plays tap_<gag>.wav in step."""
+class SoundTest(unittest.TestCase):
+    """Sage's voice is not made yet: with no sounds.json it is silent; a moment switched on there plays its sound."""
 
     def setUp(self):
-        import wave
         self.dir = tempfile.mkdtemp(prefix="deskbuddy-sounds-")
-        for g in ("shock", "prep", "prep_alarm", "startle"):
-            with wave.open(os.path.join(self.dir, f"tap_{g}.wav"), "wb") as w:
-                w.setnchannels(1); w.setsampwidth(2); w.setframerate(44100); w.writeframes(b"\0\0" * 44100)
+        self.addCleanup(shutil.rmtree, self.dir)
         self.cfg = os.path.join(self.dir, "sounds.json")
-        self.write({"enabled": True, "volume": 0.4})
-        self.patches = [mock.patch.object(bridge, "SOUNDS_DIR", self.dir), mock.patch.object(bridge, "SOUNDS_FILE", self.cfg)]
-        for p in self.patches: p.start()
-        self.timers = []
-        self.patches.append(mock.patch.object(bridge.threading, "Timer", side_effect=lambda d, fn, args: self.timers.append((d, fn, args)) or mock.Mock()))
-        self.patches[-1].start()
+        for p in (mock.patch.object(bridge, "SOUNDS_DIR", self.dir), mock.patch.object(bridge, "SOUNDS_FILE", self.cfg)):
+            p.start(); self.addCleanup(p.stop)
         self.s = bridge.Sounds()
-
-    def tearDown(self):
-        for p in self.patches: p.stop()
 
     def write(self, cfg):
         with open(self.cfg, "w") as f: json.dump(cfg, f)
-        os.utime(self.cfg, (time.time() + len(getattr(self, "timers", [])), time.time() + len(getattr(self, "timers", []))))
+        os.utime(self.cfg, (time.time() + 1, time.time() + 1))
 
-    def fire(self):
-        d, fn, args = self.timers[-1]
+    def test_silent_without_sounds_json(self):
         with mock.patch.object(bridge.subprocess, "Popen") as popen:
-            fn(*args)
-        return d, popen.call_args[0][0] if popen.called else None
+            for m in ("needs_you", "thanks", "hello", "uh_oh", "goodnight"):
+                self.assertFalse(self.s.play(m))
+        popen.assert_not_called()
 
-    def test_plays_the_gags_sound_after_his_way_in_at_your_volume(self):
-        self.assertTrue(self.s.play_gag("tap_shock_idle"))
-        d, cmd = self.fire()
-        self.assertAlmostEqual(d, bridge.GAG_LEAD - bridge.AFPLAY_LAG)
-        self.assertEqual(cmd, ["afplay", "-v", "0.4", os.path.join(self.dir, "tap_shock.wav")])
+    def test_a_moment_switched_on_plays_its_sound_at_your_volume(self):
+        self.write({"enabled": True, "volume": 0.4, "moments": {"thanks": {"on": True, "pick": ["a"]}}})
+        open(os.path.join(self.dir, "thanks_a.wav"), "wb").close()
+        with mock.patch.object(bridge.subprocess, "Popen") as popen:
+            self.assertTrue(self.s.play("thanks"))
+        self.assertEqual(popen.call_args[0][0], ["afplay", "-v", "0.4", os.path.join(self.dir, "thanks_a.wav")])
 
-    def test_volume_is_read_when_the_sound_starts(self):
-        self.s.play_gag("tap_shock_working")
-        self.write({"enabled": True, "volume": 1.7})
-        self.assertEqual(self.fire()[1][2], "1.7")
-
-    def test_meeting_alarm_prep_has_its_own_sound_and_startle_has_no_lead(self):
-        self.s.play_gag("tap_prep_meeting"); self.assertTrue(self.fire()[1][3].endswith("tap_prep_alarm.wav"))
-        self.s.play_gag("tap_prep_idle"); self.assertTrue(self.fire()[1][3].endswith("tap_prep.wav"))
-        self.s.play_gag("tap_startle_night"); self.assertEqual(self.fire()[0], 0)
-
-    def test_switched_off_means_silent(self):
-        self.write({"enabled": False, "volume": 1})
-        self.assertFalse(self.s.play_gag("tap_shock_idle"))
-        self.write({"enabled": True, "moments": {"tap_gags": {"on": False}}})
-        self.assertFalse(self.s.play_gag("tap_shock_idle"))
-        self.assertEqual(self.timers, [])
-
-    def test_other_moments_dont_talk_over_a_gag(self):
-        self.write({"enabled": True, "moments": {"thanks": {"on": True, "pick": ["a"]}, "needs_you": {"on": True, "pick": ["a"]}}})
-        for m in ("thanks", "needs_you"):
+    def test_other_moments_wait_their_gap_but_needing_you_gets_through(self):
+        self.write({"enabled": True, "moments": {m: {"on": True, "pick": ["a"]} for m in ("thanks", "on_it", "needs_you")}})
+        for m in ("thanks", "on_it", "needs_you"):
             open(os.path.join(self.dir, f"{m}_a.wav"), "wb").close()
-        self.s.play_gag("tap_shock_idle")
-        self.s.last_any = 0
         with mock.patch.object(bridge.subprocess, "Popen"):
-            self.assertFalse(self.s.play("thanks"))
-            self.assertTrue(self.s.play("needs_you"))          # needing you still gets through
+            self.assertTrue(self.s.play("thanks"))
+            self.assertFalse(self.s.play("on_it"))
+            self.assertTrue(self.s.play("needs_you"))
 
-    def test_board_gag_line_reaches_the_sounds(self):
+    def test_the_board_lines_the_bridge_reads(self):
         b = bridge.Buddy(dev=FakeDevice(), focus=FakeFocus(), sounds=FakeSounds(), start=False)
-        with mock.patch.object(bridge.time, "time", return_value=NOON):
-            b.board_line("gag tap_moon_idle")
-        self.assertEqual(b.sounds.played, ["tap_moon_idle"])
+        b.clips_sent["ping"] = 1.0
+        b.board_line("clip gone ping")
+        self.assertNotIn("ping", b.clips_sent)
+        b.board_line("gag tap_moon_idle")                         # Lump's gag sounds are gone: nothing to do
+        self.assertEqual(b.sounds.played, [])
 
 
 class FakeSlack:
@@ -460,12 +473,19 @@ class SlackTest(BridgeTest):
         p = mock.patch.object(bridge.SlackWatch, "slack_in_front", staticmethod(lambda: self.in_slack))
         p.start(); self.addCleanup(p.stop)
         self.in_slack = False
+        self.noticed = []
+        real = self.b.slack_message
+        def notice(sender, kind):
+            ok = real(sender, kind)
+            if ok: self.noticed.append((kind, sender))
+            return ok
+        self.b.slack_message = notice
 
     def poll(self):
         self.w.poll(self.clock())
 
-    def planes(self):
-        return self.b.dev.sent.count("e tap_plane")
+    def notices(self):
+        return len(self.noticed)
 
     def test_vip_dm_holds_a_letter_until_read(self):
         self.poll()
@@ -523,53 +543,54 @@ class SlackTest(BridgeTest):
         self.poll()
         self.assertEqual(self.mood(), "letter")
 
-    def test_dm_or_mention_sends_one_plane(self):
+    def test_a_dm_or_mention_is_noticed_once_and_nothing_is_played_for_it(self):
         self.poll()
         self.clock.advance(30)
         self.api.message("to:me", "UPAL", self.clock() - 5)
         self.api.message("<@UME>", "UPAL", self.clock() - 3, ch="CGEN", im=False)
         self.poll()
-        self.assertEqual(self.planes(), 1)
+        self.assertEqual(self.notices(), 1)
         self.clock.advance(30); self.poll()
-        self.assertEqual(self.planes(), 1)                 # nothing new: no second plane
-        self.clock.advance(bridge.PLANE_GAP)
+        self.assertEqual(self.notices(), 1)                 # nothing new: no second notice
+        self.clock.advance(bridge.MESSAGE_GAP)
         self.api.message("<@UME>", "UPAL", self.clock() - 1, ch="CGEN", im=False)
         self.poll()
-        self.assertEqual(self.planes(), 2)
+        self.assertEqual(self.notices(), 2)
+        self.assertFalse(any(c.startswith("e ") for c in self.b.dev.sent))   # Sage has no act for one yet
 
-    def test_planes_are_rationed(self):
+    def test_notices_are_rationed(self):
         self.api.message("to:me", "UPAL", self.clock() + 1)
         self.clock.advance(5); self.poll()
         self.api.message("to:me", "UPAL", self.clock() + 1)
         self.clock.advance(5); self.poll()
-        self.assertEqual(self.planes(), 1)
+        self.assertEqual(self.notices(), 1)
 
-    def test_no_plane_for_own_bot_old_or_vip_messages(self):
+    def test_none_for_own_bot_old_or_vip_messages(self):
         t = self.clock()
         self.api.message("to:me", "UME", t + 1)
         self.api.message("to:me", "UBOT", t + 2)
         self.api.message("to:me", "UPAL", t + 3, bot_id="B1")
         self.api.message("to:me", "UBOSS", t + 4, ch="DBOSS")
         self.clock.advance(10); self.poll()
-        self.assertEqual(self.planes(), 0)
+        self.assertEqual(self.notices(), 0)
         self.w.seen = 0                                     # Mac asleep for an hour: stale messages
         self.api.found["to:me"] = []
-        self.api.message("to:me", "UPAL", t - bridge.PLANE_FRESH - 60)
+        self.api.message("to:me", "UPAL", t - bridge.MESSAGE_FRESH - 60)
         self.poll()
-        self.assertEqual(self.planes(), 0)
+        self.assertEqual(self.notices(), 0)
 
-    def test_needs_you_and_night_get_no_plane(self):
+    def test_none_while_something_needs_you(self):
         self.hook("PermissionRequest", "a")
         self.api.message("to:me", "UPAL", self.clock() + 1)
         self.clock.advance(5); self.poll()
-        self.assertEqual(self.planes(), 0)
+        self.assertEqual(self.notices(), 0)
 
-    def test_no_plane_while_youre_in_slack_and_letter_waits_a_poll(self):
+    def test_none_while_youre_in_slack_and_letter_waits_a_poll(self):
         self.in_slack = True
         self.api.message("to:me", "UPAL", self.clock() + 1)
         self.api.unread["DBOSS"] = 1
         self.clock.advance(5); self.poll()
-        self.assertEqual(self.planes(), 0)
+        self.assertEqual(self.notices(), 0)
         self.assertEqual(self.mood(), "idle")              # you may be reading it right now
         self.api.unread["DBOSS"] = 0
         self.poll()
@@ -627,7 +648,7 @@ class TwoAccounts(BridgeTest):
         self.assertEqual(bridge.account_of_data_dir("/Users/me/Library/Application Support/Claude-Work"), "work")
         self.assertEqual(bridge.account_of_data_dir("/Users/me/Library/Application Support/Claude"), "personal")
 
-    def test_a_work_code_session_drives_lump(self):
+    def test_a_work_code_session_drives_sage(self):
         self.hook("UserPromptSubmit", "work1", transcript_path=WORK_TRANSCRIPT)
         self.assertEqual(self.mood(), "working")
         self.hook("PermissionRequest", "work1", transcript_path=WORK_TRANSCRIPT)
@@ -808,38 +829,45 @@ class MindPath(BridgeTest):
         self.b.tapped()
         self.assertEqual(self.b.mind.told[-1], ("tap", {"battery": 0.2, "mood": "idle"}))
         self.assertIn("e tap_hello", self.b.dev.sent)
+        self.assertNotIn("e tap", self.b.dev.sent)               # the mind's choice, and the board's none
+
+    def test_a_tap_the_mind_answers_with_nothing_plays_nothing(self):
+        self.b.mind.plays = {}                                   # cross, or its patience run out with no act
+        self.b.tapped()
+        self.assertFalse(any(c.startswith("e ") for c in self.b.dev.sent))
 
     def test_its_battery_is_told_when_it_changes(self):
         usage = lambda pct: self.b.set_usage({"five_hour": {"used_percentage": pct, "resets_at": NOON + 3600}})
         usage(30); usage(30); usage(80)
         self.assertEqual([c["battery"] for s, c in self.b.mind.told if s == "usage"], [0.7, 0.2])
 
-    def test_idle_asks_the_mind_and_plays_none_of_lumps_fidgets(self):
+    def test_idle_asks_the_mind_and_plays_its_choice(self):
         self.b.last_active = self.clock()
         self.clock.advance(bridge.IDLE_EVERY[1] + 1)
         with mock.patch.object(bridge.threading, "Thread") as thread:
-            self.b.clip_tick(self.clock())
+            self.b.idle_tick(self.clock())
         thread.assert_not_called()                               # nothing sent over Wi-Fi
         self.assertEqual(self.b.mind.told[-1], ("idle", {"around": True, "late": False, "mood": "idle"}))
         self.assertIn("e fidget_glance", self.b.dev.sent)
+        self.assertNotIn("e fidget", self.b.dev.sent)
 
     def test_late_at_night_and_away(self):
         one_am = time.mktime(time.struct_time((2026, 11, 12, 1, 0, 0, 0, 0, -1)))
         self.clock.t = one_am
         self.b.last_active = one_am - 60                         # still at it
         self.b.next_idle = 0
-        self.b.clip_tick(self.clock())
+        self.b.idle_tick(self.clock())
         self.assertEqual(self.b.mind.told[-1][1]["late"], True)
         self.clock.advance(3600)                                 # gone for an hour: asleep, so no idling to tell
         self.b.next_idle = 0
-        self.b.clip_tick(self.clock())
+        self.b.idle_tick(self.clock())
         self.assertEqual(len([s for s in self.b.mind.signals() if s == "idle"]), 1)
 
     def test_waiting_for_you_is_told_twice_a_minute(self):
         self.hook("PermissionRequest", "a")
         self.clock.advance(61)
         for k in range(40):
-            self.b.clip_tick(self.clock()); self.clock.advance(1)
+            self.b.idle_tick(self.clock()); self.clock.advance(1)
         self.assertEqual(self.b.mind.signals().count("waiting"), 2)
         self.assertEqual(self.b.mind.told[-1][1]["mood"], "alert")
 
@@ -862,11 +890,36 @@ class MindPath(BridgeTest):
 
 
 class MindFallback(BridgeTest):
-    """Without a mind, or with one that is not ready or does not answer, the bridge does what it did before."""
-    def test_no_mind_plays_oops_and_lumps_fidgets(self):
+    """Without a mind, or with one that is not ready or does not answer: the plain events the art holds, and the board's
+    own choice of a tap and a fidget."""
+    def test_no_mind_plays_oops(self):
         self.hook("UserPromptSubmit", "a")
         self.hook("PostToolUseFailure", "a")
         self.assertIn("e oops", self.b.dev.sent)
+
+    def test_no_mind_and_an_art_without_the_event_plays_nothing(self):
+        self.b.acts = ["hello", "tap_hello"]                     # Sage's art has no oops
+        self.hook("UserPromptSubmit", "a")
+        self.hook("PostToolUseFailure", "a")
+        self.assertFalse(any(c.startswith("e ") for c in self.b.dev.sent))
+        self.assertIn("uh_oh", self.b.sounds.played)            # its moment is still told to the sounds
+
+    def test_no_mind_the_board_chooses_a_tap_and_a_fidget(self):
+        self.b.tapped()
+        self.assertEqual(self.b.dev.sent[-1], "e tap")
+        self.b.last_active = self.clock()
+        self.clock.advance(bridge.IDLE_EVERY[1] + 1)
+        self.b.idle_tick(self.clock())
+        self.assertEqual(self.b.dev.sent[-1], "e fidget")
+
+    def test_no_mind_waiting_and_commands_play_nothing(self):
+        self.hook("PermissionRequest", "a")
+        self.clock.advance(61)
+        for k in range(40):
+            self.b.idle_tick(self.clock()); self.clock.advance(1)
+        self.hook("PostToolUse", "a", tool_name="Bash", tool_input={"command": "git push"})
+        self.hook("Stop", "a")
+        self.assertFalse(any(c.startswith("e ") for c in self.b.dev.sent), self.b.dev.sent)
 
     def test_a_mind_that_is_not_ready_is_not_asked(self):
         self.b.mind = FakeMind({"oops": "glyph_glitch"}, ready=False)
@@ -886,9 +939,8 @@ class MindFallback(BridgeTest):
         self.hook("SessionEnd", "a")
         self.b.last_active = self.clock()
         self.clock.advance(bridge.IDLE_EVERY[1] + 1)
-        with mock.patch.object(bridge.threading, "Thread") as thread:
-            self.b.clip_tick(self.clock())
-        self.assertIn(thread.call_args.kwargs["args"][0], bridge.FIDGETS)   # Lump's fidget, as before
+        self.b.idle_tick(self.clock())
+        self.assertEqual(self.b.dev.sent[-1], "e fidget")         # the board's own choice
 
 
 @unittest.skipUnless(bridge.node_path(), "no node to run Sage's mind")

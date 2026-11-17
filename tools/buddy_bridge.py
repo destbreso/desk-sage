@@ -1,4 +1,4 @@
-"""Desk Buddy bridge: Claude Code hooks -> Lump on the ESP32.
+"""Desk Buddy bridge: Claude Code hooks -> Sage on the ESP32 (or on the web emulator).
 
 Claude Code hooks POST their JSON to http://127.0.0.1:47823/hook. The bridge keeps
 a little state per session, merges all sessions into one mood, and tells the board
@@ -7,21 +7,19 @@ over USB serial only when that mood changes:
   any session waiting on you (permission prompt, question, plan approval) -> alert
   otherwise any session working                                            -> working
   otherwise, something finished that you haven't looked at yet             -> awake
-  otherwise                                                                -> idle (night after 22:00)
+  otherwise                                                                -> idle (night from midnight to 8)
 A session finishing always gets a celebration ("done"): 3.5 s if other things are still going
 on (then back to alert/working), 8 s if not. Corner extras on the display ("o" command) show
 how many sessions are working / waiting on you / finished but not looked at yet.
 
-It also sends one-off events: "oops" when a tool call fails, and "hello" the first
-time you start a session after a long break. The board itself handles escalation
-(alert -> waiting after 45 s, working -> longhaul after 10 min) and idle fidgets.
-
 Sage's mind (class Mind; mind/ in the repository) chooses the acts: a small Node process beside the bridge, told only
-the kind of thing that happened (tests failed, a build, a push, a Stop, a compaction, a hello, a tap, idling, waiting
-for you, its battery) and never a command or a prompt. It answers from its table of reactions and the website's own
-patience, and the bridge plays its choice with "e <act>" (acts are in the art: nothing goes over Wi-Fi). The moods stay
-the bridge's. Without it (no Node, "mind": false in config.json, or it stops or is slow) the bridge does what it did
-before: Lump's clips and events.
+the kind of thing that happened (tests failed, a build, a push, a Stop, a compaction, a hello, a tap, idling,
+waiting for you, its battery) and never a command or a prompt. It answers from its table of reactions and the
+website's own patience, and the bridge plays its choice with "e <act>" (acts are in the art: nothing goes over Wi-Fi).
+The moods stay the bridge's. Without it (no Node, "mind": false in config.json, or it stops or is slow) the bridge
+plays the plain events the art holds ("hello", "oops") and leaves the board to choose an act for a tap and a fidget
+when idle ("e tap", "e fidget"). The board itself handles escalation (alert -> waiting after 45 s, working ->
+longhaul after 10 min), and with no bridge it fidgets and answers taps on its own.
 
 Chat and Cowork have no hooks, so a small helper (tools/appwatch, its own login
 item) reads the Claude app's accessibility tree and posts page states to /app.
@@ -32,30 +30,31 @@ copy of the app, the work one with its own data folder (Claude-Work) and Claude 
 colour follows whichever account is closer to a limit. See account_of_config.
 
 Slack (class SlackWatch, with your own read-only user token in config.json): an unread DM from one
-of your VIPs makes him hold up a letter until Slack says you've read it (or half an hour passes);
-any other DM, or a message that @-mentions you, sends a paper plane looping round him, once.
-Channel traffic that doesn't tag you is never looked at, and "needs you" from Claude always wins.
+of your VIPs is the letter mood until Slack says you've read it (or half an hour passes); any other
+DM, or a message that @-mentions you, is noticed and logged, at most once a minute (Sage has no act
+for it yet). Channel traffic that doesn't tag you is never looked at, and "needs you" from Claude
+always wins.
 
-He also has a little ocarina voice that plays on the Mac's speakers (class Sounds): the WAVs
-come from tools/make_sounds.py and which moments make a sound lives in ~/.desk-buddy/sounds.json
-("enabled" is the master switch; Claude Switcher's right-click menu flips it).
+Sounds play on the Mac's speakers (class Sounds), and which moments make one lives in
+~/.desk-buddy/sounds.json ("enabled" is the master switch). Sage's voice is not made yet
+(docs/ROADMAP.md, Phase 3), so nothing installs that file and the bridge is silent.
 
 It sends a heartbeat ("h", which also carries the time of day) every 15 s; without it the board
-goes its own way after a minute and shows he's not connected. Session state is kept in
+goes its own way after a minute and shows it is not connected. Session state is kept in
 ~/.desk-buddy/state.json across restarts.
 
 Extras for debugging:  GET /status   POST /cmd  (body: a raw command such as "s done")
-                       GET /play     POST /play (body: an animation's name, or a clip's: a file in
-                       ~/.desk-buddy/clips made by tools/export_frames.py --clip, sent to him over Wi-Fi)
+                       GET /play     POST /play (body: an act the art holds, played as the mind's acts are;
+                       "tap" or "fidget", for the board to choose one; or a clip: a file in ~/.desk-buddy/clips
+                       made by tools/export_frames.py --clip, sent to the board over Wi-Fi first)
                        GET /sound    POST /sound (body: on | off | toggle | play <moment>)
-                       (play tap_<gag>_<mood> plays a gag's sound, e.g. play tap_shock_idle)
 Install as a login item with tools/install_bridge.sh.
 
 Without a board: python3 tools/buddy_bridge.py --emulator (or "emulator": true in config.json) drives the
 web emulator instead (emulator/, see its README): the bridge serves the page at /emulator/ and talks to it
 in the board's own line protocol. Everything else behaves as with a board.
 """
-import base64, glob, http.server, json, logging, logging.handlers, os, queue, random, re, shutil, subprocess, sys, threading, time, wave
+import base64, glob, http.server, json, logging, logging.handlers, os, queue, random, re, shutil, struct, subprocess, sys, threading, time
 from urllib.parse import parse_qs, urlparse
 try:
     import serial
@@ -67,7 +66,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EMULATOR_DIR = os.path.join(ROOT, "emulator")        # the emulator's page, served from a checkout of the repository
 HOME = os.environ.get("DESKBUDDY_HOME") or os.path.expanduser("~/.desk-buddy")   # tests point this elsewhere
 NIGHT_START, NIGHT_END = 0, 8           # local hours: night (deep sleep under the blanket) is midnight to 8am
-NIGHT_SETTLE = 5 * 60                   # after he was last up to something (or you were), regular sleep this long first
+NIGHT_SETTLE = 5 * 60                   # after it was last up to something (or you were), regular sleep this long first
 
 
 def night_hour(h):
@@ -86,19 +85,15 @@ FORGET = 6 * 3600                       # drop sessions silent for this long
 OOPS_GAP = 20                           # at most one oops per this many seconds
 DEFAULT_COLOUR = "FF7A45"               # Tangerine
 TAP_SNOOZE = 120                        # tapping "needs you" holds off the nagging this long
-# Animations you can ask for from the computer (menu bar, hotkey, Shortcuts: POST /play <name>),
-# mapped to the board's event. "tap" is a random gag picked by the board, as when you tap the glass
-# (at night the startle, before a meeting the prep), but without a tap's meaning: nothing is snoozed
-# or silenced. A named gag plays in whatever mood he's in.
-GAGS = ("shock", "moto", "wolf", "accordion", "anvil", "disco", "banana", "balloon", "sneeze", "moon", "bomb")
-ANIMATIONS = {"tap": "tap", **{g: f"tap_{g}" for g in GAGS}, "startle": "tap_startle_night", "prep": "tap_prep",
-              **{e: e for e in ("fidget_toss", "fidget_twitch", "fidget_bubble", "oops", "hello")}}
-# Usage gauge: his colour warms from Tangerine to red as the busier of your 5-hour / weekly
+# Names POST /play takes besides the art's acts: the board chooses one of its own (firmware/src/main.cpp, pickAct).
+# A tap asked for this way has none of a tap's meaning: nothing is snoozed and its patience is not touched.
+BOARD_PICKS = ("tap", "fidget")
+# Usage gauge: the body colour warms from Tangerine to red as the busier of your 5-hour / weekly
 # Claude limits fills up (fed by the Claude Code status line, see tools/statusline.sh).
 USAGE_STOPS = [(0.0, "FF7A45"), (0.5, "FF7A45"), (0.8, "FF4B2B"), (0.97, "C8102E"), (1.0, "8F7C78")]
 # Meetings (read from ~/.desk-buddy/meetings.json, written by a calendar source): colour slides
-# to MEETING_COLOUR over the 10 minutes before a meeting, he plays "meeting time" when it starts,
-# and keeps the colour for the first few minutes.
+# to MEETING_COLOUR over the 10 minutes before a meeting, the meeting mood plays when it starts,
+# and the colour stays for the first few minutes.
 MEETING_COLOUR = "3D8BFF"               # electric blue (reached via pink and purple, see meeting_blend)
 MEETING_LEAD = 10 * 60
 MEETING_ALERT_SECS = 45
@@ -106,7 +101,7 @@ MEETING_HOLD = 5 * 60
 MEETINGS_FILE = os.path.join(HOME, "meetings.json")
 CONFIG_FILE = os.path.join(HOME, "config.json")    # {"calendar_ics": "<private iCal link>", "my_email": "..."}
 CALENDAR_EVERY = 5 * 60
-# Sounds: see class Sounds. At night (NIGHT_START..NIGHT_END) he only makes noise if you've been
+# Sounds: see class Sounds. At night (NIGHT_START..NIGHT_END) it only makes noise if you've been
 # active in the last NIGHT_AWAKE seconds, so a background job finishing at 2am stays silent.
 SOUNDS_FILE = os.path.join(HOME, "sounds.json")
 SOUNDS_DIR = os.path.join(HOME, "sounds")
@@ -117,27 +112,14 @@ STILL_WAITING_AFTER = 45                # matches the board's alert -> waiting e
 LONG_JOB_AFTER = 10 * 60                # matches the board's working -> longhaul
 NIGHT_AWAKE = 15 * 60
 FIDGET_EVERY = (5 * 60, 15 * 60)
-# Gag sounds (tools/make_gag_sounds.py -> sounds/tap_<gag>.wav): the board prints "gag tap_<gag>_<mood>"
-# the moment a gag starts. Each sound is timed from the gag's first drawing, which comes GAG_LEAD after
-# that (his way in from the mood is padded to 12 frames at 24 fps); the night startle has no way in.
-GAG_LEAD = 0.5
-AFPLAY_LAG = 0.05                       # afplay takes a moment to start making sound
 # Heartbeat: "h <seconds since local midnight>" every HEARTBEAT_EVERY. If the board hears nothing
-# for a minute (bridge crashed, Mac asleep, USB power only) he goes his own way: idle and fidgeting,
-# asleep at night, with a little unplugged-cable mark. The heartbeat also tells him the time.
+# for a minute (bridge crashed, Mac asleep, USB power only) it goes its own way: idle and fidgeting,
+# asleep at night, with a little unplugged-cable mark. The heartbeat also tells it the time.
 HEARTBEAT_EVERY = 15
 NET_PORT = 4210                                    # the board's command port on Wi-Fi (tools/wifi_setup.py)
 STATE_FILE = os.path.join(HOME, "state.json")     # sessions etc. survive a bridge restart
-CLIPS_DIR = os.path.join(HOME, "clips")           # extra animations sent to him over Wi-Fi when asked for (<name>.clip)
-# Clips he plays unprompted. These tables say what sets one off; a clip that isn't in CLIPS_DIR is
-# skipped. He plays at most one every CLIP_GAP seconds, none at night or at a meeting alarm, and while
-# something needs you only the "waiting" ones. config.json: "auto_clips": false turns all of it off.
-# While he's idle he does one thing about every IDLE_EVERY seconds: an idle clip if you're around,
-# otherwise one of his own fidgets (the board leaves fidgeting to the bridge while it's connected).
-CLIP_GAP = 120
-IDLE_EVERY = (50, 70)
-FIDGETS = ["fidget_toss", "fidget_twitch", "fidget_bubble"]
-CLIP_EVERY = {"done": 10 * 60, "waiting": 3 * 60, "limit": 60 * 60}    # least time between two of a kind
+CLIPS_DIR = os.path.join(HOME, "clips")           # extra animations sent to the board over Wi-Fi when asked for (<name>.clip)
+IDLE_EVERY = (50, 70)                   # while idle, Sage does one thing about this often (the mind's idle signal)
 COMMANDS = [                            # a Bash command Claude ran: (pattern, what it is if it worked, if it failed)
     (r"\b(pytest|unittest|jest|vitest|mocha|rspec|phpunit|go test|cargo test|swift test|ctest|(npm|pnpm|yarn|bun)( run)? test|make (test|check))\b", "tests", "tests"),
     (r"\bgit push\b", "push", None),
@@ -147,48 +129,21 @@ COMMANDS = [                            # a Bash command Claude ran: (pattern, w
     (r"\b(deploy|kubectl apply|terraform apply|ota\.py)\b", "deploy", None),
     (r"\b((npm|pnpm|yarn|bun) run build|cargo build|go build|pio run|xcodebuild|docker build|tsc)\b", "build", "build"),
 ]
-# Lump's clips for those, played over Wi-Fi only when Sage's mind is not there to choose
-COMMAND_CLIPS = {("tests", True): "tests_pass", ("tests", False): "tests_fail", ("push", True): "git_push",
-                 ("conflict", False): "merge_conflict", ("rollback", True): "rollback", ("lint", True): "lint_fluff",
-                 ("deploy", True): "deploy_lever", ("build", True): "build_bike", ("big_diff", True): "big_diff"}
 # Sage's mind (mind/, a Node process; see class Mind): it chooses the acts, the bridge keeps the moods. The contract
 # between the two is mind/README.md: its protocol, and the signals the bridge sends (these, and no others).
 MIND_SCRIPT = os.path.join(ROOT, "mind", "sage-mind.mjs")
 MIND_PROTOCOL = 1
-MIND_SIGNALS = ("tests", "build", "push", "deploy", "conflict", "rollback", "lint", "big_diff", "done", "compact", "hello", "oops",
-                "waiting", "idle", "usage", "tap")
+MIND_SIGNALS = ("tests", "build", "push", "deploy", "conflict", "rollback", "lint", "big_diff", "done", "compact", "hello",
+                "oops", "waiting", "idle", "usage", "tap")
 MIND_ANSWER = 0.3                       # seconds it has to answer before the bridge goes on without it
 MIND_RETRY = (2, 300)                   # once it stops: the first wait before starting it again, and the longest
 WAIT_ASK = 30                           # while you're kept waiting, it is told so this often (it keeps its own cooldown)
-CLIP_SETS = {
-    "waiting": ["polite_cough", "sign_spinner", "semaphore", "paper_note", "doorbell", "tin_can_phone", "hourglass", "flare_gun",
-                "bottle_message", "tumbleweed"],
-    "done": ["confetti_cannon", "trophy", "mic_drop", "fireworks", "victory_lap", "crowd_surf", "medal", "champagne", "pinata", "slow_clap"],
-    "meeting": ["tie_panic", "mute_button", "stand_up", "screen_share", "ringing_phone"],
-    "slack": ["carrier_pigeon", "mailbox"],
-    "tap": ["jelly_wobble", "whack_a_mole", "trapdoor", "jack_in_the_box", "magnet", "tuning_fork", "bowling_pin", "hiccups", "pinball", "fortune"],
-    "idle": ["shadow_puppets", "knitting", "card_house", "hula_hoop", "spinning_plate", "sock_puppet", "dandelion", "yoyo", "bubblegum",
-             "juggle", "counting_sheep", "dream_bubble", "calendar_avalanche", "sticky_notes", "raincloud", "snow_globe", "sunburn",
-             "windy", "autumn_leaves", "snowman", "puddle", "rainbow", "thunder", "heatwave", "rubber_duck", "magnifying_glass", "wrench",
-             "vacuum", "paint_roller", "telescope", "typewriter", "umbrella", "fishing_rod", "jetpack", "clone", "gravity_off",
-             "shrink_ray", "portal", "origami", "taffy_stretch", "bubble_wrap", "rocket_launch", "invisible_box", "curtain_call",
-             "paddle_rally", "falling_blocks", "brick_breaker", "snake_tail", "maze_chase", "descending_rows", "road_crossing",
-             "block_bonk", "barrel_ladders", "rock_field", "cave_dig", "battle_menu", "health_bars", "kart_drift", "extra_life",
-             "bow_of_the_ship", "boulder_run", "moon_bike", "rain_dance", "bullet_lean", "wire_drop", "cub_lift", "stair_run",
-             "water_ripple", "floor_piano", "balloon_house", "shared_noodle", "boombox", "tower_climb", "crane_pose",
-             "this_is_fine", "distracted", "nope_yep", "dinner_standoff", "obvious_outcome", "big_brain", "line_goes_up", "is_this",
-             "two_buttons", "change_my_mind", "think_about_it", "take_my_money", "sip_tea", "rainbow_flight", "keyboard_solo",
-             "dramatic_turn", "deal_with_it", "table_flip", "pointing_twins", "hedge_retreat", "fits_sits", "shelf_push", "cucumber",
-             "panic_calm", "bottle_flip", "pocket_universe"],
-}
-CLIP_HOURS = [("morning_stretch", 6, 9.5), ("coffee", 7, 11), ("lunch", 12, 13.5), ("afternoon_slump", 14.5, 16),    # once a day each, the
-              ("golden_hour", 17, 18.5), ("clock_out", 17.5, 20), ("night_light", 20, 22), ("midnight_snack", 22, 24)]  # first time you're around
 # Slack, polled with your user token (see class SlackWatch). config.json: "slack_token" (xoxp-..., never
 # logged), "slack_vips" (names as Slack shows them), optional "slack_vip_minutes" (how long a letter lasts).
 SLACK_EVERY = 20                        # seconds between polls
 SLACK_VIP_HOLD = 30 * 60                # a VIP's letter goes away by itself after this, read or not
-PLANE_GAP = 60                          # at most one paper plane a minute, however many messages land
-PLANE_FRESH = 10 * 60                   # older messages (the bridge was down, the Mac asleep) get no plane
+MESSAGE_GAP = 60                        # at most one message noticed a minute, however many land
+MESSAGE_FRESH = 10 * 60                 # older messages (the bridge was down, the Mac asleep) are not noticed
 
 os.makedirs(HOME, exist_ok=True)
 log = logging.getLogger("bridge")
@@ -201,8 +156,8 @@ if sys.stderr.isatty():          # under launchd stderr is bridge.out, which onl
 
 
 def command_kind(cmd, worked, payload):
-    """What a Bash command Claude just ran was (tests, a push, a build...), if it is one Sage reacts to. Only this
-    goes on to Sage's mind, never the command."""
+    """What a Bash command Claude just ran was (tests, a push, a build...), if it is one Sage reacts to. Only
+    this goes on to Sage's mind, never the command."""
     if re.search(r"\b(pip3?|brew|npm|pnpm|yarn|bun|cargo|apt(-get)?) (install|add|i)\b", cmd):
         return None
     if worked and re.search(r"\bgit (diff|show)\b", cmd) and len(json.dumps(payload.get("tool_response") or "")) > 20000:
@@ -214,9 +169,32 @@ def command_kind(cmd, worked, payload):
     return None
 
 
-def command_clip(cmd, worked, payload):
-    """Lump's clip that goes with a Bash command Claude just ran, if there is one."""
-    return COMMAND_CLIPS.get((command_kind(cmd, worked, payload), worked))
+def art_acts(path):
+    """The names of the acts (event sequences) in an art file, read from its header as the board reads it
+    (tools/export_frames.py documents the layout); None when the file cannot be read as one."""
+    try:
+        with open(path, "rb") as f:
+            d = f.read()
+        if d[:4] not in (b"SAGE", b"LUMP") or not 3 <= struct.unpack_from("<H", d, 4)[0] <= 7:
+            return None
+        p = 10
+        for _ in range(d[8]):                          # moods: u8 base, u8 length, the name
+            p += 2 + d[p + 1]
+        if d[4] >= 5:
+            n, = struct.unpack_from("<H", d, p); p += 2
+        else:
+            n = d[p]; p += 1
+        acts = []
+        for _ in range(n):                             # u8 kind, from, to, u8 length, the name, u16 ticks, a u16 a tick
+            kind, size = d[p], d[p + 3]
+            name = d[p + 4:p + 4 + size].decode("latin-1")
+            ticks, = struct.unpack_from("<H", d, p + 4 + size)
+            p += 6 + size + 2 * ticks
+            if kind == 2:
+                acts.append(name)
+        return acts
+    except (OSError, TypeError, IndexError, struct.error):
+        return None
 
 
 def clip_names():
@@ -338,7 +316,7 @@ class _EmulatorLink:
 
 class Device:
     """Owns the link to the board: USB serial when it's plugged in, otherwise Wi-Fi (TCP to
-    lump.local:4210, set up with tools/wifi_setup.py, which stores "lump_token" in config.json).
+    sage.local:4210, set up with tools/wifi_setup.py, which stores "board_token" in config.json).
     Reconnects when the board is unplugged, reboots or drops off the network, and moves back to
     USB as soon as a cable appears."""
 
@@ -365,7 +343,7 @@ class Device:
         if os.environ.get("DESKBUDDY_PORT"):
             return [os.environ["DESKBUDDY_PORT"]]
         cfg = read_config()
-        net = [f"socket://{cfg.get('lump_host') or 'lump.local'}:{NET_PORT}"] if cfg.get("lump_token") else []
+        net = [f"socket://{cfg.get('board_host') or 'sage.local'}:{NET_PORT}"] if cfg.get("board_token") else []
         return self.usb_ports() + net
 
     def _fail(self, p, e):
@@ -382,7 +360,7 @@ class Device:
                     self.link = "emulator"
                 elif p.startswith("socket://"):
                     import socket as so
-                    # look up lump.local as IPv4 only: a general lookup waits 5 s for an IPv6
+                    # look up sage.local as IPv4 only: a general lookup waits 5 s for an IPv6
                     # answer the board never gives
                     host, port = p[len("socket://"):].rsplit(":", 1)
                     ip = so.getaddrinfo(host, int(port), so.AF_INET, so.SOCK_STREAM)[0][4][0]
@@ -394,7 +372,7 @@ class Device:
                             if hasattr(so, opt):
                                 try: sock.setsockopt(so.IPPROTO_TCP, getattr(so, opt), v)
                                 except OSError: pass
-                    s.write(f"k {read_config().get('lump_token', '')}\n".encode())
+                    s.write(f"k {read_config().get('board_token', '')}\n".encode())
                     self.link = "wifi"
                 else:
                     s = serial.Serial(); s.port, s.baudrate, s.timeout = p, 115200, 0.3
@@ -436,9 +414,9 @@ class Device:
                     if text:
                         log.info("board: %s", text)
                     # board rebooted, or it had given up on us (no heartbeat) and gone its own way
-                    if "lump ready" in text or text == "resync":
+                    if "sage ready" in text or text == "resync":
                         self._call(self.on_ready)
-                    elif (text == "tap" or text.startswith(("gag ", "clip gone ", "tapclip "))) and self.on_line:
+                    elif (text == "tap" or text.startswith("clip gone ")) and self.on_line:
                         self._call(self.on_line, text)
                     elif text == "err pairing":
                         log.info("the board refused our pairing token: run tools/wifi_setup.py again")
@@ -802,8 +780,9 @@ class Focus:
 
 
 class Sounds:
-    """Plays Lump's voice through afplay. Settings are re-read whenever sounds.json changes, so
-    flipping "enabled" (Claude Switcher, POST /sound, or by hand) takes effect immediately.
+    """Plays a moment's sound (sounds/<moment>_<pick>.wav) through afplay. Sage's voice is not made yet, so nothing
+    installs sounds.json and without it every moment is silent. Settings are re-read whenever sounds.json changes,
+    so flipping "enabled" (POST /sound, or by hand) takes effect immediately.
       {"enabled": true, "volume": 1.0, "quiet_at_night": true,
        "moments": {"needs_you": {"on": true, "pick": ["a", "c"]}, ...}}
     Several picks: a random one each time, never the same one twice in a row."""
@@ -811,7 +790,6 @@ class Sounds:
     def __init__(self):
         self.lock, self.cfg, self.mtime = threading.Lock(), {}, None
         self.last_any, self.last_at, self.last_pick, self.proc = 0.0, {}, {}, None
-        self.gag_until, self.gag_timer = 0.0, None             # a gag's sound is playing (or about to) until then
 
     def settings(self):
         try:
@@ -847,8 +825,7 @@ class Sounds:
                 if not cfg.get("enabled") or not m.get("on") or not picks:
                     return False                              # switched off: nothing worth logging
                 why = ("same sound %.0fs ago" % (now - self.last_at[moment]) if now - self.last_at.get(moment, 0) < SOUND_REPEAT else
-                       "another sound %.1fs ago" % (now - self.last_any) if now - self.last_any < SOUND_GAP and moment not in URGENT_SOUNDS else
-                       "a gag is playing" if now < self.gag_until and moment not in URGENT_SOUNDS else None)   # don't talk over a gag
+                       "another sound %.1fs ago" % (now - self.last_any) if now - self.last_any < SOUND_GAP and moment not in URGENT_SOUNDS else None)
                 if why:
                     log.info("sound %s skipped: %s", moment, why); return False
             if not picks:
@@ -859,7 +836,7 @@ class Sounds:
             k = random.choice(pool)
             path = os.path.join(SOUNDS_DIR, f"{moment}_{k}.wav")
             if not os.path.exists(path):
-                log.info("sound %s missing (run tools/make_sounds.py)", path)
+                log.info("sound %s missing", path)
                 return False
             if self.proc and self.proc.poll() is None:
                 self.proc.terminate()                         # one voice at a time
@@ -874,52 +851,12 @@ class Sounds:
             return True
 
 
-    def play_gag(self, event, force=False):
-        """The board started a gag (event "tap_<gag>_<mood>"): play its sound in step with the drawings,
-        at the volume from sounds.json. On/off: "enabled" and the "tap_gags" moment (on if missing)."""
-        gag, _, mood = event[4:].rpartition("_")
-        if gag == "prep" and mood == "meeting":
-            gag = "prep_alarm"                                # at the alarm itself, prep starts with the clock ringing
-        path = os.path.join(SOUNDS_DIR, f"tap_{gag}.wav")
-        with self.lock:
-            cfg = self.settings()
-            if not force and (not cfg.get("enabled") or not (cfg.get("moments") or {}).get("tap_gags", {"on": True}).get("on", True)):
-                return False
-            if not os.path.exists(path):
-                log.info("sound %s missing (run tools/make_gag_sounds.py)", path); return False
-            try:
-                with wave.open(path) as w:
-                    length = w.getnframes() / w.getframerate()
-            except Exception:
-                length = 5.0
-            delay = max(0.0, (0 if gag == "startle" else GAG_LEAD) - AFPLAY_LAG)
-            if self.gag_timer:
-                self.gag_timer.cancel()
-            self.gag_until = time.time() + delay + length
-            self.gag_timer = threading.Timer(delay, self._start_gag, (path, gag))
-            self.gag_timer.daemon = True
-            self.gag_timer.start()
-            return True
-
-    def _start_gag(self, path, gag):
-        with self.lock:
-            volume = self.settings().get("volume", 1.0)          # read now, so a just-moved slider counts
-            if self.proc and self.proc.poll() is None:
-                self.proc.terminate()                         # one voice at a time
-            try:
-                self.proc = subprocess.Popen(["afplay", "-v", str(volume), path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            except Exception as e:
-                log.info("afplay failed: %s", e); return
-            self.last_any = time.time()
-            log.info("sound gag %s (volume %s)", gag, volume)
-
-
 def _hex(c): return [int(c[i:i + 2], 16) for i in (0, 2, 4)]
 def _mix(a, b, k): A, B = _hex(a), _hex(b); return "".join(f"{round(x + (y - x) * k):02X}" for x, y in zip(A, B))
 
 
 # --- vivid blending: OKLCH, around the colour wheel (a straight RGB blend from orange toward
-# blue/teal passes through grey). Same maths as the colour lab on design/lump.html.
+# blue/teal passes through grey).
 def _s2l(c): return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
 def _l2s(c): return 12.92 * c if c <= 0.0031308 else 1.055 * c ** (1 / 2.4) - 0.055
 
@@ -953,7 +890,7 @@ def oklch_to_hex(L, C, H):
 
 
 def meeting_blend(base, t):
-    """Countdown colour: from his current colour, hue going down (through pink and purple) to blue."""
+    """Countdown colour: from the current colour, hue going down (through pink and purple) to blue."""
     L1, C1, H1 = hex_to_oklch(base)
     L2, C2, H2 = hex_to_oklch(MEETING_COLOUR)
     dh = H2 - H1
@@ -970,9 +907,10 @@ def usage_colour(frac):
 
 
 class Buddy:
-    def __init__(self, dev=None, focus=None, sounds=None, start=True, emulator=None, mind=None):
+    def __init__(self, dev=None, focus=None, sounds=None, start=True, emulator=None, mind=None, art=None):
         self.lock = threading.Lock()
-        self.mind = mind               # Sage's mind (class Mind): it chooses the acts; without it, the clips and gags as before
+        self.mind = mind               # Sage's mind (class Mind): it chooses the acts; without it, the plain events and the board's own picks
+        self.acts = art_acts(art) if art else None     # the acts the art holds (None: not known, so not checked)
         self.mind_said = {}            # signal -> the mind's last "nothing" and why, so it is logged once
         self.next_wait_ask = 0.0
         self.told_battery = None       # the battery (usage left) the mind was last told
@@ -983,13 +921,12 @@ class Buddy:
         self.celebrate_until = 0.0
         self.usage = {}                # from the status line: five_hour / seven_day pct + resets
         self.sent_colour = None
-        self.sent_prep = None          # meeting countdown flag last sent (p 0 / p 1)
         self.meeting_alerted = set()   # meeting start times we've already announced
         self.last_oops = 0.0
         self.resync_at = 0.0
         self.sounds = sounds or Sounds()
         self.last_active = 0.0         # last time you did something (prompt, answer, new session)
-        self.last_up = time.time()     # last time he was showing anything but sleep (night waits NIGHT_SETTLE after it)
+        self.last_up = time.time()     # last time it was showing anything but sleep (night waits NIGHT_SETTLE after it)
         self.goodnight_night = None    # which night we've already said goodnight for
         self.woke_at = 0.0
         self.working_since, self.long_played = None, False
@@ -999,12 +936,8 @@ class Buddy:
         self.last_beat = 0.0
         self.saved = None                         # last state.json we wrote
         self.letters = {}                         # Slack: VIP DMs you haven't read, channel -> {"from", "ts", "since"}
-        self.last_plane = 0.0
+        self.last_message = 0.0                   # Slack: the last DM or mention noticed
         self.clips_sent = {}                      # clip name -> file time of the copy the board has
-        self.last_clip, self.clip_kind, self.recent_clips = 0.0, {}, []    # clips played unprompted: when, by kind, which
-        self.clip_days = {}                       # time-of-day clip -> the day it last played
-        self.meeting_clipped = set()              # meeting starts he's already done a clip for
-        self.taps_loaded = 0.0
         self.next_idle = time.time() + random.uniform(*IDLE_EVERY)
         self.load_state()
         self.dev = dev or Device(self.resend, self.board_line, emulator)
@@ -1020,7 +953,7 @@ class Buddy:
                 "usage": self.usage, "last_event": self.last_event, "last_active": self.last_active,
                 "goodnight_night": self.goodnight_night,
                 "meeting_dismissed": sorted(self.meeting_dismissed), "meeting_alerted": sorted(self.meeting_alerted),
-                "letters": self.letters, "clip_days": self.clip_days}
+                "letters": self.letters}
 
     def save_state(self):
         with self.lock:
@@ -1051,7 +984,6 @@ class Buddy:
         self.meeting_dismissed = set(st.get("meeting_dismissed") or [])
         self.meeting_alerted = set(st.get("meeting_alerted") or [])
         self.letters = {k: v for k, v in (st.get("letters") or {}).items() if isinstance(v, dict) and v.get("since")}
-        self.clip_days = st.get("clip_days") or {}
         log.info("restored %d session(s) from %s", len(self.sessions), STATE_FILE)
 
     # ---- session bookkeeping ----
@@ -1107,14 +1039,8 @@ class Buddy:
             log.info("hook %s %s%s -> %s", ev, sid[:8], "" if s.get("account", PERSONAL) == PERSONAL else " (%s)" % s["account"], state or "-")
         self.update()                                   # the mood first: an act sent before it is lost on the way there
         act = self.hook_act(ev, p, event, busy)
-        if act is None:                                 # no mind: Lump's clips and events, as before it
-            if ev in ("PostToolUse", "PostToolUseFailure") and p.get("tool_name") == "Bash":
-                name = command_clip((p.get("tool_input") or {}).get("command") or "", ev == "PostToolUse", p)
-                act = name and self.auto_clip("command", [name])
-            elif ev == "Stop":
-                act = self.auto_clip("done", CLIP_SETS["done"])
-            if event and not (act and event == "oops"):
-                self.event(event)
+        if act is None and event and self.holds(event):  # no mind: the plain event, if the art has it
+            self.event(event)
         if event and not (act and event == "oops"):     # an act for the failure stands in for the plain "oops"
             self.sound({"hello": "hello", "oops": "uh_oh"}[event])
 
@@ -1179,7 +1105,7 @@ class Buddy:
         return {ch: l for ch, l in self.letters.items() if not l.get("expired")}
 
     def slack_letter(self, ch, sender, ts):
-        """An unread DM from a VIP (ts: Slack's id for the newest one). He holds up a letter."""
+        """An unread DM from a VIP (ts: Slack's id for the newest one): the letter mood."""
         with self.lock:
             if (self.letters.get(ch) or {}).get("ts") == ts:
                 return False
@@ -1199,20 +1125,19 @@ class Buddy:
             log.info("slack: letter from %s read", l.get("from"))
             self.update()
 
-    def slack_plane(self, sender, kind):
-        """A DM or @-mention from anyone else: a paper plane, once. Not while he needs you (Claude wins),
-        at the meeting alarm, mid-celebration, at night, or within PLANE_GAP of the last one."""
+    def slack_message(self, sender, kind):
+        """A DM or @-mention from anyone else, noticed: True when it is a moment for one (not while something needs you,
+        at the meeting alarm, mid-celebration, at night, or within MESSAGE_GAP of the last). Sage has no act for it yet
+        (the paper plane the bridge sent for one was Lump's, and left with his art)."""
         now = time.time()
         with self.lock:
             mood = self.mood_locked(now)
-            if mood in ("alert", "meeting", "done", "night") or now - self.last_plane < PLANE_GAP:
-                log.info("slack: %s from %s, no plane (%s)", kind, sender, mood if mood in ("alert", "meeting", "done", "night") else "one just flew")
+            if mood in ("alert", "meeting", "done", "night") or now - self.last_message < MESSAGE_GAP:
+                log.info("slack: %s from %s, not now (%s)", kind, sender, mood if mood in ("alert", "meeting", "done", "night") else "one just came")
                 return False
-            self.last_plane = now
-        log.info("slack: %s from %s -> plane", kind, sender)
-        if clip_names() and random.random() < 0.34 and self.auto_clip("slack", CLIP_SETS["slack"]):
-            return True
-        return self.event("tap_plane")
+            self.last_message = now
+        log.info("slack: %s from %s (no act for it yet)", kind, sender)
+        return True
 
     def _set(self, s, state, now):
         """Record a session's new state; a finish starts a celebration and a "check me" mark."""
@@ -1240,27 +1165,14 @@ class Buddy:
     def board_line(self, text):
         if text == "tap":
             self.tapped()
-        elif text.startswith("gag "):
-            self.gag_sound(text[4:].strip())
-        elif text.startswith("clip gone "):          # he made room for a newer clip: send this one again when it's next asked for
+        elif text.startswith("clip gone "):          # it made room for a newer clip: send this one again when it's next asked for
             self.clips_sent.pop(text[10:].strip(), None)
-        elif text.startswith("tapclip "):            # a tap set off one of the clips, which ends asleep: put his mood back after it
-            self.resync_at = time.time() + 8
-
-    def gag_sound(self, event):
-        """A gag just started on the board: its sound, unless it's night and you've not been around
-        (a tap counts as being around, so tapping him at night still gets the startle's sound)."""
-        now = time.time()
-        h = time.localtime(now).tm_hour
-        if (night_hour(h) and now - self.last_active > NIGHT_AWAKE
-                and self.sounds.settings().get("quiet_at_night", True)):
-            return False
-        return self.sounds.play_gag(event)
 
     def tapped(self):
-        """You tapped the glass. What it means depends on what he's showing:
-        meeting alarm -> silence it; needs you -> "seen it", snooze 2 min (amber dots stay);
-        awake with unread results -> mark them read so he can sleep. Otherwise the board giggles."""
+        """You tapped the glass (the board only says so while the bridge is there). What it means depends on what Sage
+        is showing: meeting alarm -> silence it; needs you -> "seen it", snooze 2 min (amber dots stay); awake with
+        unread results -> mark them read so it can sleep. Then the mind chooses its answer, its patience counting the
+        poke; with no mind the board picks one of the art's taps itself."""
         now = time.time()
         with self.lock:
             mood, base = self.mood_locked(now), self.base_locked(now)
@@ -1277,16 +1189,17 @@ class Buddy:
                     st.pop("unseen", None)
                 what = "marked as read"
             else:
-                what = "giggle"
+                what = "a poke"
             self.last_active = now
             frac = self.usage_frac(now)
         log.info("tap: %s", what)
         self.update()
-        self.react("tap", battery=None if frac is None else round(1 - frac, 2))   # a poke: its patience
+        if self.react("tap", battery=None if frac is None else round(1 - frac, 2)) is None:   # a poke: its patience
+            self.event("tap")
 
     def sound(self, moment):
         """Play a moment's sound, unless it's night and you've not been around for a while
-        (goodnight is the exception: it's the last thing he says)."""
+        (goodnight is the exception: it's the last thing it says)."""
         now = time.time()
         h = time.localtime(now).tm_hour
         night = night_hour(h)
@@ -1383,7 +1296,7 @@ class Buddy:
         if force or m != self.sent_mood:
             if m == "night" and self.sent_mood not in (None, "night"):
                 night = time.strftime("%Y-%m-%d", time.localtime(now - NIGHT_END * 3600))
-                if self.goodnight_night != night:        # once a night, however often he dozes off
+                if self.goodnight_night != night:        # once a night, however often it dozes off
                     self.goodnight_night = night
                     self.sound("goodnight")
             if self.dev.send("s " + m):
@@ -1397,16 +1310,6 @@ class Buddy:
         if force or overlay != self.sent_overlay:
             if self.dev.send(overlay):
                 self.sent_overlay = overlay
-        # meeting countdown (or its alarm) running: a tap on the glass then plays meeting prep
-        prep = "p 1" if self.prep_time(now) else "p 0"
-        if force or prep != self.sent_prep:
-            if self.dev.send(prep):
-                self.sent_prep = prep
-
-    def prep_time(self, now):
-        """True from MEETING_LEAD before a meeting until its alarm window is over."""
-        m = self.next_meeting(now)
-        return bool(m) and -MEETING_ALERT_SECS <= m["start"] - now < MEETING_LEAD
 
     def usage_frac(self, now):
         fr = [w["pct"] / 100 for w in self.usage.values() if w.get("pct") is not None
@@ -1450,16 +1353,11 @@ class Buddy:
         battery = None if frac is None else round(1 - frac, 2)     # its battery is the usage left
         if battery is not None and battery != self.told_battery and self.react("usage", battery=battery) is not None:
             self.told_battery = battery
-        if not self.mind_up() and frac is not None and frac >= 0.97:
-            self.auto_clip("limit", ["rate_limited"])
 
     def resend(self):
-        self.sent_mood = self.sent_overlay = self.sent_colour = self.sent_prep = None
-        self.clips_sent = {}                            # he may have restarted, and clips don't survive that
-        if time.time() - self.taps_loaded > 60:
-            self.taps_loaded = time.time()
-            threading.Thread(target=self.load_tap_clips, daemon=True).start()
-        self.last_beat = 0.0                            # and tell him the time straight away
+        self.sent_mood = self.sent_overlay = self.sent_colour = None
+        self.clips_sent = {}                            # it may have restarted, and clips don't survive that
+        self.last_beat = 0.0                            # and tell it the time straight away
         if time.time() - self.woke_at > 60:            # board plugged in or restarted
             self.woke_at = time.time()
             self.sound("waking_up")
@@ -1490,9 +1388,9 @@ class Buddy:
             self.sound(moment)
 
     def event(self, name):
-        # an event plays in its home mood (oops: working, hello: idle); the board walks
+        # an event plays in its home mood (Sage's all start from idle); the board walks
         # there by itself, so re-assert our mood once it has finished
-        self.next_idle = time.time() + random.uniform(*IDLE_EVERY)      # whatever it is, it counts as his thing for this minute
+        self.next_idle = time.time() + random.uniform(*IDLE_EVERY)      # whatever it is, it counts as its thing for this minute
         if self.dev.send("e " + name):
             self.resync_at = time.time() + 8
             return True
@@ -1500,6 +1398,10 @@ class Buddy:
 
     def mind_up(self):
         return bool(self.mind and self.mind.ready)
+
+    def holds(self, act):
+        """Does the art hold this act? Yes when the art is not known: the board then answers for it."""
+        return self.acts is None or act in self.acts
 
     def react(self, signal, **context):
         """Tell Sage's mind what happened and play the act it chooses (an act in the art, so nothing goes over Wi-Fi).
@@ -1524,61 +1426,32 @@ class Buddy:
         return act
 
     def play(self, name):
-        """An animation asked for from the computer: None if there's no such animation,
-        otherwise whether the board got it. A clip is sent to him first if he doesn't have it."""
+        """An act asked for from the computer (POST /play), played as the mind's are: one the art holds, "tap" or
+        "fidget" for the board to choose one, or a clip in CLIPS_DIR, sent to the board first if it does not have it.
+        None if there is no such act, otherwise whether the board got it."""
         name = name.strip().lower()
-        ev = ANIMATIONS.get(name)
-        if ev is None:
+        if name not in BOARD_PICKS and name not in (self.acts or ()):
             if name not in clip_names():
                 return None
             if not self.send_clip(name):
                 return False
-            ev = name
         log.info("play: %s", name)
-        return self.event(ev)
+        return self.event(name)
 
-    def auto_clip(self, kind, names):
-        """Play one of these clips unprompted, if this is a moment for it. Returns the one chosen, or None."""
-        now = time.time()
-        have = [n for n in names if n in clip_names()]
-        if not have or read_config().get("auto_clips") is False or not self.dev.connected:
-            return None
-        with self.lock:
-            mood = self.mood_locked(now)
-            if (now - self.last_clip < CLIP_GAP or now - self.clip_kind.get(kind, 0) < CLIP_EVERY.get(kind, 0)
-                    or mood in ("night", "meeting") or (mood == "alert" and kind != "waiting")):
-                return None
-            name = random.choice([n for n in have if n not in self.recent_clips] or have)
-            self.last_clip = self.clip_kind[kind] = now
-            self.recent_clips = (self.recent_clips + [name])[-20:]
-        log.info("clip (%s): %s", kind, name)
-        threading.Thread(target=self.play, args=(name,), daemon=True).start()    # sending it can take a second or two
-        return name
+    def playable(self):
+        return [*BOARD_PICKS, *(self.acts or ()), *clip_names()]
 
-    def clip_tick(self, now):
-        """Clips that come from time passing: you've kept him waiting, the time of day, a meeting coming."""
+    def idle_tick(self, now):
+        """What comes from time passing: you've kept it waiting, or it is idle (about once a minute)."""
         with self.lock:
             waiting = any(s["state"] == "alert" and now - s["t"] >= 60 and self._effective(s, now) == "alert" for s in self.sessions.values())
             around = now - self.last_active < 30 * 60
         if waiting:
-            if not self.mind_up():
-                self.auto_clip("waiting", CLIP_SETS["waiting"])
-            elif now >= self.next_wait_ask:
+            if self.mind_up() and now >= self.next_wait_ask:
                 self.next_wait_ask = now + WAIT_ASK
-                if self.react("waiting") is None:
-                    self.auto_clip("waiting", CLIP_SETS["waiting"])
+                self.react("waiting")
             return
-        for m in self.meetings():
-            start = m.get("start")
-            if start and 0 < start - now < MEETING_LEAD and start not in self.meeting_clipped:
-                if self.auto_clip("meeting", CLIP_SETS["meeting"]): self.meeting_clipped.add(start)
-        if around and not self.mind_up():               # (the mind has its own late-night acts)
-            lt = time.localtime(now); hour, today = lt.tm_hour + lt.tm_min / 60, time.strftime("%Y-%m-%d", lt)
-            for name, h0, h1 in CLIP_HOURS:
-                if h0 <= hour < h1 and self.clip_days.get(name) != today:
-                    if self.auto_clip("hour", [name]): self.clip_days[name] = today
-                    break
-        # idle: one animation about every minute, counted from his last one
+        # idle: one act about every minute, counted from the last one
         with self.lock:
             idle = self.mood_locked(now) == "idle"
             if not idle:
@@ -1586,22 +1459,9 @@ class Buddy:
             if not idle or now < self.next_idle:
                 return
             self.next_idle = now + random.uniform(*IDLE_EVERY)
-        if self.react("idle", around=around, late=night_hour(time.localtime(now).tm_hour)) is not None:
-            return
-        with self.lock:
-            pool = [n for n in CLIP_SETS["idle"] if n in clip_names()] if around and read_config().get("auto_clips") is not False else []
-            name = random.choice([n for n in pool + FIDGETS if n not in self.recent_clips] or FIDGETS)
-            self.recent_clips = (self.recent_clips + [name])[-20:]
-        log.info("idle: %s", name)
-        threading.Thread(target=self.play, args=(name,), daemon=True).start()
-
-    def load_tap_clips(self):
-        """Give him the tap reactions to keep, so a tap on the glass can pick one of those as well as his own gags."""
-        if read_config().get("auto_clips") is False:
-            return
-        for name in CLIP_SETS["tap"]:
-            if name in clip_names() and not self.send_clip(name, tap=True):
-                break
+        if self.react("idle", around=around, late=night_hour(time.localtime(now).tm_hour)) is None:
+            log.info("idle: a fidget of the board's choice")      # no mind: one of the art's fidgets
+            self.event("fidget")
 
     def send_clip(self, name, tap=False):
         """Give the board a clip over Wi-Fi (it keeps clips in RAM, so again after it restarts or the file changes)."""
@@ -1618,12 +1478,12 @@ class Buddy:
                 self.dev.emulator.post_clip(name, data, tap)
             else:
                 import socket, urllib.request
-                ip = socket.getaddrinfo(cfg.get("lump_host") or "lump.local", 80, socket.AF_INET, socket.SOCK_STREAM)[0][4][0]
+                ip = socket.getaddrinfo(cfg.get("board_host") or "sage.local", 80, socket.AF_INET, socket.SOCK_STREAM)[0][4][0]
                 with open(path, "rb") as f:
                     data = f.read()
                 req = urllib.request.Request(f"http://{ip}/clip", data=data, method="POST", headers={
-                    "X-Lump-Token": cfg.get("lump_token", ""), "X-Lump-Size": str(len(data)), "X-Lump-Name": name,
-                    "X-Lump-Tap": "1" if tap else "0", "Content-Type": "application/octet-stream"})
+                    "X-Sage-Token": cfg.get("board_token", ""), "X-Sage-Size": str(len(data)), "X-Sage-Name": name,
+                    "X-Sage-Tap": "1" if tap else "0", "Content-Type": "application/octet-stream"})
                 t0 = time.time()
                 urllib.request.urlopen(req, timeout=20).read()
         except Exception as e:
@@ -1636,7 +1496,7 @@ class Buddy:
 
     def _tick(self):
         # Nothing in here may kill this loop: it drives the board, the heartbeat and saving. (If it
-        # did die anyway, the heartbeat would stop and the board would show he's on his own.)
+        # did die anyway, the heartbeat would stop and the board would show it is on its own.)
         while True:
             time.sleep(1)
             try: self.tick(time.time())
@@ -1655,8 +1515,8 @@ class Buddy:
                 self.last_beat = now
         try: self.sound_tick(now)
         except Exception: log.exception("sound tick failed")
-        try: self.clip_tick(now)
-        except Exception: log.exception("clip tick failed")
+        try: self.idle_tick(now)
+        except Exception: log.exception("idle tick failed")
         try: self.save_state()
         except Exception: log.exception("saving %s failed", STATE_FILE)
 
@@ -1692,8 +1552,8 @@ class AppPages:
     that's read as the personal copy.) A copy that stops being reported (quit) counts as empty."""
 
     APP_STALE = 3 * 60
-    # Claude's own "Stop response" button. Not a bare "Stop": web pages open in the app (like the gag
-    # sound review page, with its own Stop button for audio) would otherwise look like a chat responding.
+    # Claude's own "Stop response" button. Not a bare "Stop": web pages open in the app (a page with its
+    # own Stop button for audio, say) would otherwise look like a chat responding.
     STOP_BTN = re.compile(r"^stop (response|generating)$", re.I)
     NEEDS_BTN = re.compile(r"\b(allow|approve|deny|don.?t allow|reject|decline)\b", re.I)
     WORK_STATUS = re.compile(r"^(claude is (responding|thinking)|running a command.*|working…?|running|thinking|responding)$", re.I)
@@ -1805,10 +1665,10 @@ class SlackWatch:
     im:read im:history mpim:read mpim:history users:read search:read). Every SLACK_EVERY seconds:
 
       VIPs ("slack_vips" in config.json, names as Slack shows them): their 1:1 DMs are checked for
-      unread messages. One you haven't read -> Lump holds up a letter until Slack no longer counts it
+      unread messages. One you haven't read -> the letter mood until Slack no longer counts it
       unread (read it anywhere, phone included) or the hold time passes. A newer message re-arms it.
       Everyone else: a search for messages sent to you (DMs and group DMs) and messages that @-mention
-      you by name. Each new one, unless it's yours or a bot's, sends one paper plane.
+      you by name. New ones, unless yours or a bot's, are noticed once a poll (Buddy.slack_message).
 
     Channel traffic that doesn't tag you never comes back from those searches, so it's never seen.
     The token is only ever sent to slack.com in a header; it and message text are never logged.
@@ -1866,7 +1726,7 @@ class SlackWatch:
 
     @staticmethod
     def slack_in_front():
-        """Is Slack the app you're using right now? (Then a plane is just noise, and a VIP message you're
+        """Is Slack the app you're using right now? (Then a notice is just noise, and a VIP message you're
         reading as it lands shouldn't get the whole letter routine.)"""
         try:
             asn = subprocess.run(["lsappinfo", "front"], capture_output=True, text=True, timeout=2).stdout.strip()
@@ -1957,13 +1817,13 @@ class SlackWatch:
             self.buddy.slack_read(ch)                   # no longer a VIP (or the DM's gone)
 
     def check_new(self, vips, now, front=False):
-        """New DMs and @-mentions since the last poll: one plane for the lot (VIP DMs have their letter)."""
+        """New DMs and @-mentions since the last poll: one notice for the lot (VIP DMs have their letter)."""
         hits = []
         for kind, q in (("DM", self.DM_QUERY), ("mention", self.MENTION_QUERY.format(me=self.me))):
             r = self.call("search.messages", query=q, sort="timestamp", sort_dir="desc", count=20)
             for m in (r.get("messages") or {}).get("matches") or []:
                 hits.append((kind, m))
-        newest, plane = self.seen, None
+        newest, message = self.seen, None
         for kind, m in hits:
             try: ts = float(m.get("ts") or 0)
             except ValueError: continue
@@ -1971,18 +1831,18 @@ class SlackWatch:
                 continue
             newest = max(newest, ts)
             uid, ch = m.get("user"), m.get("channel") or {}
-            if not uid or uid == self.me or (self.users.get(uid) or {}).get("bot") or m.get("bot_id") or now - ts > PLANE_FRESH:
+            if not uid or uid == self.me or (self.users.get(uid) or {}).get("bot") or m.get("bot_id") or now - ts > MESSAGE_FRESH:
                 continue
             if uid in vips and ch.get("is_im"):
                 continue                                # a VIP's DM: that's the letter's job
             if ch.get("is_im") or ch.get("is_mpim"):
                 kind = "DM"
-            plane = plane or (kind, self.name(uid))
+            message = message or (kind, self.name(uid))
         self.seen = newest
-        if plane and front:
-            log.info("slack: %s from %s, no plane (you're in Slack)", plane[0], plane[1])
-        elif plane:
-            self.buddy.slack_plane(plane[1], plane[0])
+        if message and front:
+            log.info("slack: %s from %s, not noticed (you're in Slack)", message[0], message[1])
+        elif message:
+            self.buddy.slack_message(message[1], message[0])
 
 
 buddy = None
@@ -2103,17 +1963,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
             buddy.calendar.refresh_now(); self._reply(200, b"refreshing")
         elif self.path == "/cmd":
             ok = buddy.dev.send(body.decode().strip()); self._reply(200 if ok else 503, b"ok" if ok else b"board not connected")
-        elif self.path == "/play":                # an animation by name (GET /play lists them)
+        elif self.path == "/play":                # an act by name (GET /play lists them)
             ok = buddy.play(body.decode())
-            if ok is None: self._reply(404, b"no such animation (GET /play lists them)")
+            if ok is None: self._reply(404, b"no such act (GET /play lists them)")
             else: self._reply(200 if ok else 503, b"ok" if ok else b"couldn't reach the board (see bridge.log)")
         elif self.path == "/sound":               # on | off | toggle | play <moment>
             cmd = body.decode().strip().split()
             if cmd and cmd[0] in ("on", "off", "toggle"):
                 on = buddy.sounds.set_enabled({"on": True, "off": False}.get(cmd[0], "toggle"))
                 self._reply(200, b"on" if on else b"off")
-            elif len(cmd) == 2 and cmd[0] == "play":            # a moment, or a gag as the board names it (tap_shock_idle)
-                ok = (buddy.sounds.play_gag(cmd[1], force=True) if cmd[1].startswith("tap_") else buddy.sounds.play(cmd[1], force=True))
+            elif len(cmd) == 2 and cmd[0] == "play":            # a moment
+                ok = buddy.sounds.play(cmd[1], force=True)
                 self._reply(200 if ok else 404, b"ok" if ok else b"no such sound")
             else:
                 self._reply(400, b"use: on | off | toggle | play <moment>")
@@ -2128,7 +1988,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         elif self.path == "/sound":
             self._reply(200, json.dumps(buddy.sounds.settings(), indent=2).encode(), "application/json")
         elif self.path == "/play":
-            self._reply(200, json.dumps(list(ANIMATIONS) + clip_names()).encode(), "application/json")
+            self._reply(200, json.dumps(buddy.playable()).encode(), "application/json")
         else:
             self._reply(404)
 
@@ -2137,20 +1997,19 @@ if __name__ == "__main__":
     import argparse
     ap = argparse.ArgumentParser(description="Desk Buddy bridge: Claude Code hooks to the board (see the top of this file).")
     ap.add_argument("--emulator", action="store_true", help='drive the web emulator (emulator/) instead of a board; also "emulator": true in config.json')
-    ap.add_argument("--art", help="the .bin the emulator plays, and Sage's mind reads its acts from (default: firmware/data/lump.bin if there is one, else the test card)")
+    ap.add_argument("--art", help='the art the board or the emulator plays, which Sage\'s mind and POST /play read its acts from (default: "art" in config.json, else firmware/data/sage.bin, else for the emulator the test card)')
     ap.add_argument("--port", type=int, default=HTTP_PORT, help="the HTTP port (default %(default)s, where the hooks post)")
     args = ap.parse_args()
     cfg, hub = read_config(), None
-    if args.emulator or cfg.get("emulator"):
-        hub = Emulator(args.art or next((p for p in (os.path.join(ROOT, "firmware", "data", "lump.bin"), os.path.join(EMULATOR_DIR, "testcard", "testcard.bin"))
-                                         if os.path.exists(p)), None))
-    elif serial is None:
+    emulating = args.emulator or cfg.get("emulator")
+    if not emulating and serial is None:
         sys.exit("pyserial is missing (tools/install_bridge.sh installs it); without a board, run with --emulator")
-    # the mind is told the art the board plays: the emulator's, else --art, config.json "art", or the committed bake
-    art = hub.art if hub else args.art or cfg.get("art") or next((p for p in (os.path.join(ROOT, "firmware", "data", n) for n in ("sage.bin", "lump.bin"))
-                                                                   if os.path.exists(p)), None)
+    # the art the board plays (the installed config names the repository's), which the mind and POST /play read
+    defaults = [os.path.join(ROOT, "firmware", "data", "sage.bin")] + ([os.path.join(EMULATOR_DIR, "testcard", "testcard.bin")] if emulating else [])
+    art = args.art or cfg.get("art") or next((p for p in defaults if os.path.exists(p)), None)
+    hub = Emulator(art) if emulating else None
     mind = None if cfg.get("mind") is False else Mind(art=art, script=cfg["mind"] if isinstance(cfg.get("mind"), str) else MIND_SCRIPT, node=cfg.get("node"))
-    buddy = Buddy(emulator=hub, mind=mind)
+    buddy = Buddy(emulator=hub, mind=mind, art=art)
     buddy.app = AppPages(buddy)
     buddy.calendar = Calendar()
     buddy.slack = SlackWatch(buddy)

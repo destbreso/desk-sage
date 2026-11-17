@@ -25,7 +25,6 @@ class FakeFocus:
 class FakeSounds:
     def settings(self): return {}
     def play(self, moment, force=False): return True
-    def play_gag(self, event, force=False): return True
 
 
 class FakeDevice:
@@ -100,10 +99,13 @@ class TheDevice(unittest.TestCase):
             self.assertEqual(dev.link, "emulator")
             self.assertTrue(dev.send("s working"))
             self.assertEqual(q.get(timeout=2), ("line", "s working"))
-            hub.heard(page, b"ok mode=direct\ntap\ngag tap_shock_idle\n")
-            self.assertTrue(until(lambda: lines == ["tap", "gag tap_shock_idle"]), lines)
+            hub.heard(page, b"ok mode=direct\ntap\nclip gone ping\n")
+            self.assertTrue(until(lambda: lines == ["tap", "clip gone ping"]), lines)
             ready.clear()
             hub.heard(page, b"resync\n")                       # the board had given up on the bridge: resend
+            self.assertTrue(ready.wait(2))
+            ready.clear()
+            hub.heard(page, b"sage ready: 10 moods, 73 sequences, 3616 frames\n")   # it restarted
             self.assertTrue(ready.wait(2))
             hub.detach(page)
             self.assertTrue(until(lambda: not dev.connected))
@@ -132,8 +134,8 @@ class Clips(unittest.TestCase):
         self.assertEqual((got["kind"], got["name"], got["tap"], base64.b64decode(got["data"])), ("clip", "ping", True, b"LUMP..."))
 
     def test_a_clip_the_page_refuses_raises_its_answer(self):
-        self.answer("err not a clip he can read")
-        with self.assertRaisesRegex(OSError, "err not a clip he can read"):
+        self.answer("err not a clip it can read")
+        with self.assertRaisesRegex(OSError, "err not a clip it can read"):
             self.hub.post_clip("junk", b"x", False)
 
     def test_no_page_no_clip(self):
@@ -162,20 +164,23 @@ class Clips(unittest.TestCase):
     def test_a_refusal_is_logged_and_not_counted_as_sent(self):
         dev = FakeDevice(); dev.emulator = self.hub
         b = self.buddy_with_clip(dev)
-        self.answer("err he has no drawings to add it to")
+        self.answer("err it has no drawings to add it to")
         with self.assertLogs("bridge", "INFO") as logs:
             self.assertFalse(b.send_clip("ping"))
-        self.assertIn("clip ping not sent: err he has no drawings to add it to", "\n".join(logs.output))
+        self.assertIn("clip ping not sent: err it has no drawings to add it to", "\n".join(logs.output))
         self.assertNotIn("ping", b.clips_sent)
 
     def test_without_the_emulator_a_clip_still_goes_to_the_board_over_wifi(self):
+        with open(bridge.CONFIG_FILE, "w") as f:
+            json.dump({"board_token": "abcdef123456"}, f)
+        self.addCleanup(os.remove, bridge.CONFIG_FILE)
         b = self.buddy_with_clip(FakeDevice())
         with mock.patch("socket.getaddrinfo", return_value=[(0, 0, 0, "", ("10.0.0.7", 80))]), \
              mock.patch("urllib.request.urlopen") as urlopen:
             self.assertTrue(b.send_clip("ping", tap=True))
         req = urlopen.call_args[0][0]
         self.assertEqual(req.full_url, "http://10.0.0.7/clip")
-        self.assertEqual((req.get_header("X-lump-name"), req.get_header("X-lump-tap")), ("ping", "1"))
+        self.assertEqual((req.get_header("X-sage-name"), req.get_header("X-sage-tap"), req.get_header("X-sage-token")), ("ping", "1", "abcdef123456"))
 
 
 class TheServer(unittest.TestCase):
