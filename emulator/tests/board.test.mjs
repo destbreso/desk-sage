@@ -6,7 +6,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { Board, ESCALATE_MS, LONGHAUL_MS, HOST_TIMEOUT_MS, BL_NIGHT, MAX_SRC } from '../board.mjs';
-import { encode, solid, solidOps, clip } from './fixture.mjs';
+import { encode, solid, solidOps, clip, sageLike } from './fixture.mjs';
 import { inflate } from '../inflate-node.mjs';
 
 const TESTCARD = new Uint8Array(readFileSync(new URL('../testcard/testcard.bin', import.meta.url)));
@@ -58,6 +58,7 @@ describe('parsing', () => {
   test('wrong magic or version is refused; version 4 has a one-byte sequence count', () => {
     const bad = small(); bad[0] = 0x58;
     assert.equal(new Board().parseArt(bad, bad.length, 0), false);
+    for (const magic of ['SAGE', 'LUMP']) { const art = sageLike({ magic }); assert.equal(new Board().parseArt(art, art.length, 0), true, magic); }
     for (const v of [2, 8]) { const x = small(); x[4] = v; assert.equal(new Board().parseArt(x, x.length, 0), false, `version ${v}`); }
     const v4 = encode({ version: 4, moods: [['idle', 0]], seqs: [[0, 0, 0, 'idle', [0]]], frames: [solid(0)] });
     assert.equal(new Board().parseArt(v4, v4.length, 0), true);
@@ -111,13 +112,13 @@ describe('the state graph', () => {
     assert.match(m.b.problems[0], /no transition drawn from idle toward working/);
   });
 
-  test('a gag queued for a mood the board never settled in plays in the one it lands in', () => {
-    const m = make(); m.cmd('h 43200'); m.run(700);            // knocks in the first 600 ms after boot are ignored
+  test('an act queued for a mood the board never settled in plays the one drawn for the mood it lands in', () => {
+    const m = make(); m.cmd('h 43200');
     m.cmd('s working');                                        // under way: idle_to_working
-    m.b.sample(1.0); m.run(4);                                 // a knock: tap_shock_working, queued
+    m.cmd('e tap');                                            // the board's choice for working: tap_shock_working, queued
+    assert.equal(m.b.state().pending, 'tap_shock_working');
     m.cmd('s done');
-    m.run(1500);
-    assert.ok(m.said.includes('gag tap_shock_done'), m.said.join(' | '));
+    assert.ok(trace(m, 2000).includes('tap_shock_done'));
   });
 
   test('an event walks to its home mood first and stays there', () => {
@@ -186,10 +187,15 @@ describe('on its own, over time', () => {
 });
 
 describe('taps', () => {
-  test('a knock says tap, then the gag the board picked as it starts', () => {
-    const m = make(); m.cmd('h 43200'); m.clock.t = 1000;
-    m.b.sample(1.0); m.run(4);
-    assert.deepEqual(m.said.slice(-2), ['tap', 'gag tap_shock_idle']);
+  test('with the bridge there a knock is only said; offline the board answers it with a tap of the art', () => {
+    const m = make(sageLike()); m.cmd('h 43200'); m.run(5000);
+    m.b.sample(1.0); m.run(100);
+    assert.equal(m.said.at(-1), 'tap');
+    assert.equal(m.b.state().kind, 'loop');                    // nothing plays: the bridge's mind chooses
+    const off = make(sageLike()); off.run(5000);               // never heard from the bridge
+    off.b.sample(1.0); off.run(4);
+    assert.equal(off.said.at(-1), 'tap');
+    assert.equal(off.playing(), 'tap_hello(event)');
   });
 
   test('a second knock within 600 ms is the same tap: the board has no double tap', () => {
@@ -200,29 +206,100 @@ describe('taps', () => {
     assert.equal(m.said.filter(l => l === 'tap').length, 2);
   });
 
-  test('never the same gag twice running', () => {
-    const m = make(); m.cmd('h 43200');
-    const gags = [];
-    for (let i = 0; i < 6; i++) { m.clock.t += 2000; m.b.sample(1.0); m.run(1500); gags.push(m.said.filter(l => l.startsWith('gag ')).at(-1)); }
-    for (let i = 1; i < gags.length; i++) assert.notEqual(gags[i], gags[i - 1]);
+  test('its own taps: any tap_* act but tap_dizzy, never the same twice running', () => {
+    let seed = 7;
+    const random = n => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed % n; };
+    const m = make(sageLike({ acts: ['tap_hello', 'tap_knock', 'tap_dizzy'] }), { random }); m.run(5000);
+    const taps = [];
+    for (let i = 0; i < 40; i++) { m.b.sample(1.0); m.run(4); taps.push(m.b.state().playing); m.run(1600); }
+    assert.deepEqual(new Set(taps), new Set(['tap_hello', 'tap_knock']));
+    for (let i = 1; i < taps.length; i++) assert.notEqual(taps[i], taps[i - 1], `tap ${i}`);
   });
 
-  test('at night the startle; at a meeting or with prep on, meeting prep', () => {
-    const night = make(); night.cmd('h 43200'); night.cmd('s night'); night.run(1000);
-    night.b.sample(1.0); night.run(1000);
-    assert.ok(night.said.includes('gag tap_startle_night'));
-    const meeting = make(); meeting.cmd('h 43200'); meeting.cmd('s meeting'); meeting.run(1000);
-    meeting.b.sample(1.0); meeting.run(1000);
-    assert.ok(meeting.said.includes('gag tap_prep_meeting'));
-    const prep = make(); prep.cmd('h 43200'); prep.cmd('p 1'); prep.clock.t = 1000;
-    prep.b.sample(1.0); prep.run(4);
-    assert.ok(prep.said.includes('gag tap_prep_idle'));
+  test('with one tap act it plays that one every time; with none, a knock plays nothing', () => {
+    const one = make(sageLike({ acts: ['tap_hello', 'tap_dizzy'] })); one.run(5000);
+    for (let i = 0; i < 3; i++) { one.b.sample(1.0); one.run(4); assert.equal(one.playing(), 'tap_hello(event)'); one.run(1600); }
+    const none = make(sageLike({ acts: ['tap_dizzy', 'fidget_look'] })); none.run(5000);
+    none.b.sample(1.0); none.run(4);
+    assert.equal(none.b.state().kind, 'loop');
+    none.cmd('e tap'); assert.equal(none.said.at(-1), 'err unknown event');
+  });
+
+  test('e tap and e fidget are the board\'s choice; it prefers the acts drawn for its mood', () => {
+    const m = make(); m.cmd('h 43200');
+    m.cmd('e fidget'); assert.equal(m.b.state().playing, 'fidget_toss');
+    m.run(3000);
+    m.cmd('s night'); m.run(1000);
+    m.cmd('e tap'); assert.equal(m.b.state().pending ?? m.b.state().playing, 'tap_startle_night');
+    m.run(3000);
+    m.cmd('s meeting'); m.run(2000);
+    m.cmd('e tap'); assert.equal(m.b.state().pending ?? m.b.state().playing, 'tap_prep_meeting');
+  });
+
+  test('a clip sent as a tap reaction is in the running for a tap', () => {
+    const m = make(sageLike({ acts: ['tap_hello'] })); m.run(5000);
+    m.b.postClip(clip('wobble'), 'wobble', true);
+    const seen = new Set();
+    for (let i = 0; i < 4; i++) { m.b.sample(1.0); m.run(4); seen.add(m.b.state().playing); m.run(1600); }
+    assert.deepEqual(seen, new Set(['tap_hello', 'wobble']));
   });
 
   test('a knock under the threshold is no tap', () => {
     const m = make(); m.cmd('h 43200'); m.cmd('T 2'); m.clock.t = 1000;
     m.b.sample(1.0); m.run(4);
     assert.ok(!m.said.includes('tap'));
+  });
+});
+
+describe('the rain at its own moments', () => {
+  const until = (m, ok, ms = 70000) => { for (let t = 0; t < ms && !ok(m.b.state()); t += 20) m.run(20); assert.ok(ok(m.b.state()), 'timed out'); };
+  const offlineAfter = m => { m.cmd('h 43200'); m.run(3000); until(m, s => s.mode === 'offline'); };   // the moment it decides
+
+  test('out of the rain once the art is loaded after a boot, if the art has it', () => {
+    assert.equal(make(sageLike()).playing(), 'glyph_form(event)');
+    assert.equal(make().playing(), 'idle(loop)');              // the test card has no rain
+  });
+
+  test('the bridge gone: it dissolves into the rain and forms again at once, then lives on its own', () => {
+    const m = make(sageLike(), { draw: false }); m.cmd('h 43200'); m.run(3000);
+    m.cmd('s working'); m.run(2000);
+    m.run(HOST_TIMEOUT_MS - 6000, 20);
+    assert.equal(m.b.state().mode, 'direct');
+    const seen = trace(m, 9000);
+    assert.equal(m.b.state().mode, 'offline');
+    assert.deepEqual(seen.slice(seen.indexOf('working_to_idle')), ['working_to_idle', 'glyph_dissolve', 'glyph_form', 'idle']);
+  });
+
+  test('the bridge back: a hello, before the mood the bridge sends; in the middle of an act, after the rain', () => {
+    const m = make(sageLike(), { draw: false }); offlineAfter(m); m.run(5000);
+    m.cmd('h 43200'); m.cmd('s working');                      // as the bridge does on "resync"
+    assert.deepEqual(trace(m, 4000), ['hello', 'idle_to_working', 'working']);
+    const n = make(sageLike(), { draw: false }); offlineAfter(n);
+    assert.equal(n.b.state().playing, 'glyph_dissolve');
+    n.cmd('h 43200');
+    assert.deepEqual(trace(n, 4000), ['glyph_dissolve', 'glyph_form', 'hello', 'idle']);
+    // queued behind the rain, the hello gives way to a mood sent after it, as any act asked for before a mood does
+    const o = make(sageLike(), { draw: false }); offlineAfter(o);
+    o.cmd('h 43200'); o.cmd('s working');
+    assert.deepEqual(trace(o, 4000), ['glyph_dissolve', 'glyph_form', 'idle_to_working', 'working']);
+  });
+
+  test('asleep it notices neither, and without the acts nothing plays', () => {
+    const m = make(sageLike(), { draw: false }); m.cmd('h 3600'); m.cmd('s night'); m.run(3000);
+    const seen = trace(m, HOST_TIMEOUT_MS + 2000);
+    assert.ok(!seen.includes('glyph_dissolve'), seen.join(' '));
+    m.cmd('h 3700');
+    assert.equal(m.b.state().playing, 'night');
+    const bare = make(sageLike({ acts: ['tap_hello'] }), { draw: false }); offlineAfter(bare);
+    assert.equal(bare.b.state().kind, 'loop');
+    bare.cmd('h 43200'); assert.equal(bare.b.state().kind, 'loop');
+  });
+
+  test('an act asked for while it dissolves waits for the form: it never cuts from the rain', () => {
+    const m = make(sageLike(), { draw: false }); offlineAfter(m);
+    assert.equal(m.b.state().playing, 'glyph_dissolve');
+    m.cmd('e tap_knock');
+    assert.deepEqual(trace(m, 4000).slice(0, 4), ['glyph_dissolve', 'glyph_form', 'tap_knock', 'idle']);
   });
 });
 
@@ -260,7 +337,7 @@ describe('clips', () => {
     const m = make(); m.cmd('h 43200');
     assert.equal(m.b.postClip(clip('x', 'disco', 4, [['disco', 0]]), 'x').status, 400);
     const loop = encode({ moods: [['idle', 0]], seqs: [[0, 0, 0, 'x', [0]]], frames: [solid(0)] });
-    assert.deepEqual(m.b.postClip(loop, 'x'), { status: 400, body: 'err not a clip he can read' });
+    assert.deepEqual(m.b.postClip(loop, 'x'), { status: 400, body: 'err not a clip it can read' });
   });
 
   test('as in the firmware, a clip that does not parse first evicts every clip that can go', () => {
@@ -273,7 +350,7 @@ describe('clips', () => {
 
   test('without art there is nothing to add a clip to', () => {
     const m = make(null);
-    assert.deepEqual(m.b.postClip(clip('x'), 'x'), { status: 400, body: 'err he has no drawings to add it to' });
+    assert.deepEqual(m.b.postClip(clip('x'), 'x'), { status: 400, body: 'err it has no drawings to add it to' });
   });
 });
 
@@ -327,7 +404,7 @@ describe('commands', () => {
     assert.match(m.said.at(-1), /^ok mode=direct target=idle playing=idle\(loop\) fps=\d+\.\d frames=787 seqs=149 draw_ms=\d+$/);
     m.cmd('o 1 2 3'); assert.equal(m.said.at(-1), 'ok overlay working=1 waiting=2 unseen=3');
     m.cmd('c #3d8bff'); assert.equal(m.said.at(-1), 'ok colour 3D8BFF');
-    m.cmd('p 1'); assert.equal(m.said.at(-1), 'ok prep=1');
+    m.cmd('p 1'); assert.equal(m.said.at(-1), 'err unknown command');   // the meeting prep flag left with Lump's taps
     m.cmd('T 0.5'); assert.equal(m.said.at(-1), 'ok threshold=0.50g');
     m.cmd('s nowhere'); assert.equal(m.said.at(-1), 'err unknown mood');
     m.cmd('e nothing'); assert.equal(m.said.at(-1), 'err unknown event');
@@ -335,11 +412,24 @@ describe('commands', () => {
     m.cmd('Q'); assert.equal(m.said.at(-1), 'err unknown command');
   });
 
-  test('s demo walks the showcase on its own', () => {
+  test('s demo walks every mood and every act of the art on its own', () => {
     const m = make(TESTCARD, { draw: false }); m.cmd('h 43200');
     m.cmd('s demo');
-    const targets = new Set();
-    for (let i = 0; i < 60; i++) { m.run(1000, 20); targets.add(m.b.state().target); }
-    for (const t of ['idle', 'working', 'longhaul', 'alert', 'waiting']) assert.ok(targets.has(t), t);
+    const targets = new Set(), played = new Set();
+    for (let i = 0; i < 20 * 60 * 10; i++) {
+      m.run(100, 20); if (i % 150 === 0) m.cmd('h 43200');
+      const s = m.b.state(); targets.add(s.target); if (s.kind === 'event') played.add(s.playing);
+    }
+    const A = m.b.A;
+    assert.deepEqual([...targets].sort(), A.moodName.slice(0, A.nMoods).sort());
+    for (let i = 0; i < A.nSeqs; i++) if (A.kind[i] === 2) assert.ok(played.has(A.name[i]), A.name[i]);
+  });
+
+  test('an escalation to a mood the art lacks is not made', () => {
+    const art = encode({ moods: [['idle', 0], ['alert', 1]], seqs: [[0, 0, 0, 'idle', [0]], [0, 1, 1, 'alert', [0]], [1, 0, 1, 'idle_to_alert', [0]]], frames: [solidOps(9, 9, 9)] });
+    const m = make(art, { draw: false }); m.cmd('h 43200'); m.cmd('s alert');
+    m.bridged(ESCALATE_MS + 5000);
+    assert.equal(m.b.state().target, 'alert');
+    assert.deepEqual(m.b.problems, []);
   });
 });

@@ -1,24 +1,21 @@
-// Desk Buddy — Lump frame player.
-// Plays the hand-drawn frames baked from design/lump.html (tools/export_frames.py -> data/lump.bin).
+// Desk Buddy's frame player, playing Sage.
+// Plays the frames baked from design/sage.html (tools/export_frames.py -> data/sage.bin).
 // Most frames are stored as drawing instructions and drawn here by vec.h, frames made of text as glyphs
 // drawn by glyphs.h, and the rest as pixels; from version 7 most of them compressed, inflated by the ROM's tinfl
 // through packed.h.
-// The frames live in their own flash partition ("lump"), not in the program, so the art and the
+// The frames live in their own flash partition ("sage"), not in the program, so the art and the
 // program can each be updated over Wi-Fi on their own (tools/ota.py; see "Updates" below).
 // The previous Vec firmware lives in archive/vec_main.cpp.
 //
-// Moods loop (idle, working, alert, done, waiting, longhaul, night). Changing mood always plays
-// the hand-drawn transition; events (fidgets, oops, hello, tap) play once and return to their mood.
+// Moods loop (idle, working, alert, done, waiting, longhaul, night, ...: the art's names). Changing mood always
+// plays the drawn transition; acts (events) play once and return to their mood. Nothing here names an act of the
+// art but the rain's (glyph_form, glyph_dissolve) and hello, played only if the art holds them.
 //
 // Serial protocol (115200, newline-terminated), answered with "ok ..." or "err ...":
-//   s <mood>          head to a mood: idle working alert done waiting longhaul night
-//   s demo            showcase every mood and event on a loop
-//   e <event>         play an event: fidget_toss fidget_twitch fidget_bubble oops hello tap
-//                     ("tap" plays a random gag for the current mood: electric shock, ring of fire,
-//                      wolf howl, accordion, anvil, disco, banana peel, balloon pop,
-//                      sneeze, mooning, cartoon bomb; at night the late-night startle; during a meeting
-//                      countdown or alarm, meeting prep)
-//   p <0|1>           meeting countdown running (the bridge sends it): taps play meeting prep
+//   s <mood>          head to a mood: idle working alert done waiting longhaul night ...
+//   s demo            showcase every mood and every act of the art, in turn, on a loop
+//   e <act>           play an act the art (or a clip) holds; "e tap" and "e fidget" let the board choose one of the
+//                     art's tap_* acts (all but tap_dizzy) or fidget_* acts, never the same twice running
 //   o <working> <waiting> <unseen>   corner extras: counts of sessions working, waiting on you,
 //                     and finished-but-not-looked-at (drawn over the animation)
 //   c <RRGGBB>        body colour (fades over ~1 s); default Tangerine FF7A45
@@ -31,36 +28,41 @@
 //   w <ssid>\t<password>\t<token>\t<tz>   save Wi-Fi details (USB only; tools/wifi_setup.py
 //                     sends this so the password never passes through the bridge or its log),
 //                     then restart. "w" alone forgets them.
-// The board prints "tap" when the glass is tapped (and giggles itself when that makes sense).
-// It prints "gag tap_<gag>_<mood>" the moment a gag starts playing (the bridge plays its sound in step).
+// The board prints "tap" when the glass is tapped. With the bridge there that is all it does (Sage's mind chooses
+// what plays, so nothing reacts twice); offline it plays one of the art's taps itself, as "e tap" does.
 //
-// On his own: with no word from the bridge for a minute (or since boot) he's "offline": he
-// drops what he was showing, idles and fidgets (asleep at night if a heartbeat ever told him the
+// The rain at its own moments, when the art holds the acts: glyph_form once the art is loaded after a boot;
+// glyph_dissolve when it decides it is offline, glyph_form straight after it (the dissolve ends where the form
+// starts, so it never cuts from the rain to the illustrated Sage); hello when the bridge comes back. Asleep (the
+// night mood) it notices neither.
+//
+// On its own: with no word from the bridge for a minute (or since boot) it is "offline": it
+// drops what it was showing, idles and fidgets (asleep at night if a heartbeat ever told it the
 // time), and shows a small unplugged-cable mark in the bottom-right corner. Just powered from a
-// charger, he lives like this. When the bridge speaks again he prints "resync" so it resends.
+// charger, it lives like this. When the bridge speaks again it prints "resync" so it resends.
 //
-// Wi-Fi (once set up): he joins your network as lump.local and takes the same commands over TCP
-// port 4210, so the bridge can drive him without a USB data cable. A connection must start with
+// Wi-Fi (once set up): it joins your network as sage.local and takes the same commands over TCP
+// port 4210, so the bridge can drive it without a USB data cable. A connection must start with
 // "k <token>" (the pairing token from setup) or it's dropped. Replies go to USB and to the
-// network client. He also sets his clock from the internet, so he sleeps at night on his own.
+// network client. It also sets its clock from the internet, so it sleeps at night on its own.
 //
 // Updates over Wi-Fi (tools/ota.py does all this): a small web server on port 80, every request
-// carrying the pairing token in X-Lump-Token.
+// carrying the pairing token in X-Sage-Token.
 //   GET  /info?app_len=N&art_len=M   SHA-256 of the first N bytes of the running program and the
 //                                    first M bytes of the art, so the uploader sends only what changed
-//   POST /update/app                 new firmware.bin (application/octet-stream, X-Lump-MD5 checked),
+//   POST /update/app                 new firmware.bin (application/octet-stream, X-Sage-MD5 checked),
 //                                    written to the other program slot, then restart into it
-//   POST /update/art                 new lump.bin (X-Lump-Sha256 checked) into the art partition, then restart
-//   POST /clip                       an extra animation: a small file in lump.bin's layout holding only events
-//                                    (X-Lump-Name names it, X-Lump-Size is its length). It is kept in RAM until
-//                                    he restarts and plays like any other event ("e <name>"). No restart.
-//                                    When there's no room for another he drops the one played longest ago and
+//   POST /update/art                 new sage.bin (X-Sage-Sha256 checked) into the art partition, then restart
+//   POST /clip                       an extra animation: a small file in sage.bin's layout holding only events
+//                                    (X-Sage-Name names it, X-Sage-Size is its length). It is kept in RAM until
+//                                    it restarts and plays like any other act ("e <name>"). No restart.
+//                                    When there's no room for another it drops the one played longest ago and
 //                                    prints "clip gone <name>", so the bridge knows to send it again.
-//                                    X-Lump-Tap: 1 makes it a tap reaction: he keeps it, and a tap on the glass
-//                                    may pick it instead of one of his own gags (he prints "tapclip <name>").
-// While an update streams in he shows a progress bar instead of animating. If the art is missing or
-// bad he says so on screen but keeps Wi-Fi and updates working, so it can be fixed without a cable.
-// On its own the device also: fidgets every minute or so while asleep, escalates "alert" to
+//                                    X-Sage-Tap: 1 makes it a tap reaction: it is kept, and its acts are in the
+//                                    running when the board chooses a tap.
+// While an update streams in it shows a progress bar instead of animating. If the art is missing or
+// bad it says so on screen but keeps Wi-Fi and updates working, so it can be fixed without a cable.
+// On its own the device also: fidgets every minute or so while idle and offline, escalates "alert" to
 // "waiting" after 45 s, slides "working" into "longhaul" after 10 min, and dims at night.
 
 #include <Arduino.h>
@@ -113,13 +115,13 @@ static vec::Canvas cv;                 // draws instruction frames straight into
 static packed::Window win;             // compressed frames are inflated here (its buffer in PSRAM)
 static tinfl_decompressor inflater;    // tinfl's state, 10,992 bytes: static, as it is too big for the loop's stack
 
-// ---------- animation data: the "lump" flash partition, memory-mapped, plus any clips sent over Wi-Fi ----------
+// ---------- animation data: the "sage" flash partition, memory-mapped, plus any clips sent over Wi-Fi ----------
 static const esp_partition_t* artPart = nullptr;
 static const uint8_t* art = nullptr;            // mapped start of the partition
 static size_t artSize = 0;                      // mapped length (the whole partition)
 static esp_partition_mmap_handle_t artMap;
 static bool mapArt() {
-  artPart = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, (esp_partition_subtype_t)0x40, "lump");
+  artPart = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, (esp_partition_subtype_t)0x40, "sage");
   if (!artPart) return false;
   const void* ptr = nullptr;
   if (esp_partition_mmap(artPart, 0, artPart->size, ESP_PARTITION_MMAP_DATA, &ptr, &artMap) != ESP_OK) return false;
@@ -135,7 +137,7 @@ struct Src {                                    // where a sequence's frames liv
   glyphs::Atlas atlas;                           // the bitmaps its glyph frames draw with (version 6)
   uint8_t* own = nullptr; String name;           // a clip's RAM buffer and name
   uint32_t used = 0;                             // when it was last played (or arrived)
-  bool tap = false;                              // a tap reaction: kept, and in the running when the glass is tapped
+  bool tap = false;                              // a tap reaction: kept, and its acts in the running when the board chooses a tap
 };
 struct Anim {
   uint16_t nFrames = 0, nSeqs = 0; uint8_t fps = 24, nMoods = 0;
@@ -159,7 +161,7 @@ static bool parseArt(const uint8_t* buf, size_t size, int si) {
   const uint8_t* p = buf; const uint8_t* end = buf + size;
   auto room = [&](size_t n) { return size_t(end - p) >= n; };
   bool clip = si > 0;
-  if (memcmp(p, "LUMP", 4) != 0) return false;
+  if (memcmp(p, "SAGE", 4) != 0 && memcmp(p, "LUMP", 4) != 0) return false;   // LUMP: what the bake wrote before
   p += 4;
   uint16_t version = rd16(p); p += 2;            // 3: every frame is pixels. 4: a frame may be instructions. 5: up to 65535 sequences. 6: glyph frames and their atlas. 7: compressed frames
   if (version < 3 || version > 7) return false;
@@ -211,7 +213,8 @@ static int moodIndex(const String& n) { for (int m = 0; m < A.nMoods; m++) if (A
 static int eventIndex(const String& n) { for (int i = A.nSeqs - 1; i >= 0; i--) if (A.kind[i] == EVENT && A.name[i] == n) return i; return -1; }   // newest first
 
 // ---------- body colour ----------
-// Frames are exported with his body in pure magenta (FF00FF), the only colour besides the cream
+// Made for Lump's art, whose frames carried his body in pure magenta (FF00FF); Sage's has no such marker
+// (docs/ROADMAP.md, Phase 6). The only colour besides the cream
 // line (FFF1DC) and black (props with their own colour, like the yellow banana, are left alone). Every pixel is some mix  alpha*magenta + beta*cream  (plus black), and
 // since magenta has no green, beta = G/241 and alpha = R/255 - beta. Swapping magenta for the
 // current body colour recolours the fill, its soft edges, the tongue and the blanket alike.
@@ -275,6 +278,7 @@ static void drawFrame(uint8_t src, uint16_t idx) {
 // Always inside one sequence: a mood's loop, a transition, or an event. Nothing ever cuts:
 // a new target waits for the current transition/event to finish, then routes there.
 static int target = 0, curMood = 0, curSeq = 0, pendingEvent = -1;
+static int pendingThen = -1, follow = -1;     // an act that goes on at once from the pending one, and from the one playing
 static uint32_t seqStart = 0, loopSince = 0, nextFidget = 0;
 static int lastFrame = -1;
 static float fps = 0;
@@ -289,23 +293,22 @@ static int nextHop(int a, int b) {
 }
 static void settle(int m) {  // arrived in mood m's loop
   curMood = m;
+  if (follow >= 0) { int f = follow; follow = -1; if (A.from[f] == m) return startSeq(f); }
   if (target != m) {
     int h = nextHop(m, target);
     if (h >= 0) return startSeq(h);
     curMood = m = target;  // nothing drawn for this route: cut (shouldn't happen)
   }
-  // a gag queued for a mood he never settled in (the bridge moved him on meanwhile): play the same
-  // gag in the mood he did land in, rather than silently dropping it
+  // an act queued for a mood it never settled in (the bridge moved it on meanwhile): the same act drawn for the
+  // mood it did land in (name_<mood>), if the art has one, rather than silently dropping it
   if (pendingEvent >= 0 && A.from[pendingEvent] != m) {
     String n = A.name[pendingEvent]; int u = n.lastIndexOf('_'), e2 = -1;
     if (u > 0) { e2 = eventIndex(n.substring(0, u) + "_" + A.moodName[m]); if (e2 < 0) e2 = eventIndex(n.substring(0, u) + "_" + A.moodName[A.base[m]]); }
     pendingEvent = e2;
+    if (e2 < 0) pendingThen = -1;
   }
   if (pendingEvent >= 0 && A.from[pendingEvent] == m) {
-    int e = pendingEvent; pendingEvent = -1;
-    // tell the bridge the moment a gag actually starts (it may have waited for a transition), so it can play its sound in step
-    if (A.name[e].startsWith("tap_")) say("gag %s", A.name[e].c_str());
-    else if (A.srcs[A.src[e]].tap) say("tapclip %s", A.name[e].c_str());     // it ends asleep: the bridge puts his mood back
+    int e = pendingEvent; pendingEvent = -1; follow = pendingThen; pendingThen = -1;
     return startSeq(e);
   }
   startSeq(A.loopOf[m]); loopSince = millis();
@@ -314,84 +317,69 @@ static void setTarget(int m) {
   target = m;
   if (A.kind[curSeq] == LOOP) settle(curMood);
 }
-// returns false if there's no such event
-// Tapping the glass: in the daytime every tap gets one of his gags at random, never the same one twice
-// running. Every daytime mood has its own version of each (tap_<gag>_<mood>). Two taps depend on the moment:
-// at night he only does the soft late-night startle (tap_startle_night), and while a meeting is coming up
-// (the bridge says "p 1") or the meeting alarm is ringing he only does meeting prep (tap_prep_<mood>).
-static bool prepMode = false;      // the bridge's meeting countdown is running
-static const char* pickTap() {
-  static const char* GAG[] = {"shock", "moto", "wolf", "accordion", "anvil", "disco", "banana", "balloon", "sneeze", "moon", "bomb"};
-  static const int W[] = {2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
-  constexpr int NG = sizeof(W) / sizeof(W[0]);
-  static int last = -1;
-  int total = 0; for (int i = 0; i < NG; i++) if (i != last) total += W[i];
-  int x = random(total);
-  for (int i = 0; i < NG; i++) { if (i == last) continue; if ((x -= W[i]) < 0) { last = i; return GAG[i]; } }
-  return GAG[0];
+// The board's own choice of an act (for a tap, or a fidget), from whatever the art and the clips hold: one named
+// prefix*, or for a tap one of a clip sent as a tap reaction; never `except`; drawn for the target mood if any is
+// (else for its base mood, else any); and never the one it chose last time while there is another. "" if none.
+static bool pickable(int i, const char* prefix, const char* except) {
+  if (A.kind[i] != EVENT || A.name[i] == except) return false;
+  bool tapClip = A.srcs[A.src[i]].tap && strcmp(prefix, "tap_") == 0;
+  return (A.name[i].startsWith(prefix) || tapClip) && eventIndex(A.name[i]) == i;   // each name once: its newest
 }
-// Now and then a tap picks one of the tap reactions the bridge has given him, each as likely as one of his own gags.
-static String pickTapClip() {
-  static int last = -1;
-  int ids[MAX_SRC], n = 0;
-  for (int i = 1; i < MAX_SRC; i++) if (A.srcs[i].own && A.srcs[i].tap && i != last) ids[n++] = i;
-  if (!n || random(11 + n) < 11) return "";
-  last = ids[random(n)];
-  for (int s = 0; s < A.nSeqs; s++) if (A.src[s] == last && A.kind[s] == EVENT) return A.name[s];
+static int moodTier(int i) { return A.from[i] == target ? 0 : A.from[i] == A.base[target] ? 1 : 2; }
+static String pickAct(const char* prefix, const char* except, String& last) {
+  int tier = 3, n = 0, fresh = 0;
+  for (int i = 0; i < A.nSeqs; i++) if (pickable(i, prefix, except)) tier = min(tier, moodTier(i));
+  for (int i = 0; i < A.nSeqs; i++) if (pickable(i, prefix, except) && moodTier(i) == tier) { n++; if (A.name[i] != last) fresh++; }
+  if (!n) return "";
+  int k = random(fresh ? fresh : n);
+  for (int i = 0; i < A.nSeqs; i++)
+    if (pickable(i, prefix, except) && moodTier(i) == tier && (!fresh || A.name[i] != last) && k-- == 0) return last = A.name[i];
   return "";
 }
-static bool playEvent(String n) {
-  if (n == "tap") {
-    const String& m = A.moodName[target];
-    if (m == "night") n = "tap_startle";
-    else if (prepMode || m == "meeting") n = "tap_prep";
-    else { n = pickTapClip(); if (!n.length()) n = String("tap_") + pickTap(); }
-  }
+static String lastTapAct, lastFidgetAct;
+// "tap" and "fidget" are the board's own choice (pickAct); any other name is an act, or resolves per mood to the
+// one drawn for it (name_<mood>). `then` is an act to go on to at once after it. False if there is no such act.
+static bool playEvent(String n, int then = -1) {
+  if (n == "tap") n = pickAct("tap_", "tap_dizzy", lastTapAct);      // dizzy is its patience run out, not an answer to a tap
+  else if (n == "fidget") n = pickAct("fidget_", "", lastFidgetAct);
+  if (!n.length()) return false;
   int e = eventIndex(n);
-  if (e < 0) {  // generic names like "tap" resolve per mood: tap_idle, tap_working, ...
+  if (e < 0) {
     e = eventIndex(n + "_" + A.moodName[target]);
     if (e < 0) e = eventIndex(n + "_" + A.moodName[A.base[target]]);
   }
   if (e < 0) return false;
-  pendingEvent = e;
+  pendingEvent = e; pendingThen = then;
   if (target != A.from[e]) setTarget(A.from[e]); else if (A.kind[curSeq] == LOOP) settle(curMood);
   return true;
 }
 
-// ---------- demo: a showcase of every mood and event ----------
-struct Step { char type; const char* name; uint32_t ms; };
-static const Step DEMO[] = {
-  {'s', "idle", 6000}, {'e', "fidget_bubble", 6500}, {'e', "fidget_twitch", 3500},
-  {'s', "working", 6000}, {'e', "oops", 7000}, {'e', "tap", 5000}, {'s', "longhaul", 6500},
-  {'s', "alert", 6000}, {'s', "waiting", 9000}, {'s', "done", 5000}, {'e', "tap", 4500},
-  {'s', "idle", 4000}, {'e', "fidget_toss", 5500}, {'e', "hello", 7000},
-  {'s', "night", 9000}, {'s', "idle", 3000},
-};
+// ---------- demo: every mood and every act of the art, in turn ----------
 static bool demo = false;
-static int demoStep = -1;
+static int demoStep = -1, demoMood = -1, demoAct = -1;
 static uint32_t demoNext = 0;
 static void runDemo(uint32_t now) {
   if (!demo || now < demoNext) return;
-  demoStep = (demoStep + 1) % (sizeof(DEMO) / sizeof(DEMO[0]));
-  const Step& s = DEMO[demoStep];
-  if (s.type == 's') setTarget(moodIndex(s.name)); else playEvent(s.name);
-  demoNext = now + s.ms;
+  if (++demoStep % 2 == 0) {                        // a mood for six seconds, with its transitions
+    demoMood = (demoMood + 1) % A.nMoods; setTarget(demoMood); demoNext = now + 6000;
+    return;
+  }
+  for (int k = 0; k < A.nSeqs; k++) if (A.kind[demoAct = (demoAct + 1) % A.nSeqs] == EVENT) break;
+  demoNext = now + 1000;
+  if (A.kind[demoAct] == EVENT && playEvent(A.name[demoAct])) demoNext = now + A.len[demoAct] * 1000UL / A.fps + 3000;   // and its way there
 }
 
-// ---------- things he does on his own ----------
+// ---------- things it does on its own ----------
 static bool hostAlive(uint32_t now);
 static void autoBehaviour(uint32_t now) {
   if (demo || A.kind[curSeq] != LOOP || target != curMood) return;
   const String& m = A.moodName[curMood];
-  if (m == "idle" && pendingEvent < 0 && !hostAlive(now)) {      // with the bridge connected, it decides when he fidgets
+  if (m == "idle" && pendingEvent < 0 && !hostAlive(now)) {      // with the bridge connected, it decides when Sage fidgets
     if (!nextFidget) nextFidget = now + 40000 + random(50000);
-    if (now > nextFidget) {
-      static const char* F[] = {"fidget_toss", "fidget_twitch", "fidget_bubble"};
-      nextFidget = 0; playEvent(F[random(3)]);
-    }
+    if (now > nextFidget) { nextFidget = 0; playEvent("fidget"); }
   } else nextFidget = 0;
-  if (m == "alert" && now - loopSince > ESCALATE_MS) setTarget(moodIndex("waiting"));
-  if (m == "working" && now - loopSince > LONGHAUL_MS) setTarget(moodIndex("longhaul"));
+  int next = m == "alert" && now - loopSince > ESCALATE_MS ? moodIndex("waiting") : m == "working" && now - loopSince > LONGHAUL_MS ? moodIndex("longhaul") : -1;
+  if (next >= 0) setTarget(next);                               // only a mood the art has
 }
 
 // ---------- backlight: dims gently at night ----------
@@ -450,7 +438,7 @@ static void imuTask(void*) {
 
 // ---------- talking back: USB, and the Wi-Fi client if there is one ----------
 constexpr uint16_t NET_PORT = 4210;
-static String wifiSsid, netToken, tzRule;     // from flash (Preferences "lump"); password stays there
+static String wifiSsid, netToken, tzRule;     // from flash (Preferences "sage"); password stays there
 static bool wifiStarted = false, mdnsUp = false, netAuthed = false;
 static WiFiServer server(NET_PORT);
 static WiFiClient net;
@@ -460,7 +448,7 @@ static void say(const char* fmt, ...) {
   if (netAuthed && net.connected()) net.println(b);
 }
 
-// ---------- on his own: no bridge ----------
+// ---------- on its own: no bridge ----------
 static uint32_t lastHost = 0, clockAt = 0;
 static int32_t clockBase = -1;                 // seconds since local midnight at clockAt; -1 = unknown
 static bool hostSeen = false, offline = true;  // offline until the bridge says something
@@ -475,16 +463,20 @@ static bool nightNow(uint32_t now) {
   if (clockBase < 0) return false;
   return nightHour(((clockBase + (now - clockAt) / 1000) % 86400) / 3600);
 }
+// asleep, or about to be: it notices neither the bridge going nor its coming back
+static bool asleep(uint32_t now) { return nightNow(now) || A.moodName[target] == "night"; }
 static void heardFromHost() {
-  bool was = offline;
+  bool was = offline, back = offline && hostSeen;   // it had the bridge before, and lost it
   lastHost = millis(); hostSeen = true; offline = false;
   if (was) say("resync");           // the bridge resends mood, colour and corner extras
+  if (back && A.ok && !demo && !asleep(lastHost)) playEvent("hello");
 }
 static void runOffline(uint32_t now) {
-  if (!offline && !hostAlive(now)) {           // lost the bridge: forget what it last told us
+  if (!offline && !hostAlive(now)) {           // lost the bridge: forget what it last told us, and go into the rain
     offline = true;
-    ovWorking = ovWaiting = ovUnseen = 0; prepMode = false;
+    ovWorking = ovWaiting = ovUnseen = 0;
     goalR = 255; goalG = 122; goalB = 69;      // back to Tangerine (a usage or meeting colour would be stale)
+    if (!demo && !asleep(now)) playEvent("glyph_dissolve", eventIndex("glyph_form"));
   }
   if (!offline || demo) return;
   int want = moodIndex(nightNow(now) ? "night" : "idle");
@@ -505,7 +497,7 @@ static void drawOfflineMark(uint32_t now) {
 // ---------- corner extras ----------
 // Small marks drawn over the animation so nothing is hidden when several sessions are busy:
 //   bottom-left  three bouncing dots: something is working in the background
-//   top-left     amber dots, one per session waiting on you (when more than he can show)
+//   top-left     amber dots, one per session waiting on you (when more than the mood can show)
 //   top-right    a twinkling sparkle: something finished that you haven't looked at yet
 static uint16_t rgb(uint8_t r, uint8_t g, uint8_t b) { return lgfx::color565(r, g, b); }
 static bool overlayVisible() {
@@ -569,7 +561,7 @@ static void handleLine(String ln, bool fromNet = false) {
     if (m < 0) { say("err unknown mood"); return; }
     // repeating the current mood is a no-op, so the bridge can re-assert its mood without
     // restarting the loop or undoing an escalation (alert -> waiting) the board made itself
-    // (night is chosen by the bridge, so "s idle" while at night does wake him)
+    // (night is chosen by the bridge, so "s idle" while at night does wake it)
     bool selfEscalated = A.moodName[target] == "waiting" || A.moodName[target] == "longhaul";
     bool same = !demo && (m == target || (selfEscalated && A.base[target] == m));
     demo = false;
@@ -599,7 +591,6 @@ static void handleLine(String ln, bool fromNet = false) {
     return;
   }
   if (cmd == 'X') { tapPending = true; return; }     // pretend the glass was tapped (for testing)
-  if (cmd == 'p') { prepMode = arg.toInt() != 0; say("ok prep=%d", prepMode ? 1 : 0); return; }   // meeting countdown running?
   if (cmd == '?') return reply();
   say("err unknown command");
 }
@@ -611,12 +602,12 @@ static void pollSerial() {
 // ---------- Wi-Fi ----------
 static void webBegin();                         // below, with the update server
 static void wifiBegin() {
-  Preferences pr; pr.begin("lump", true);
+  Preferences pr; pr.begin("sage", true);
   wifiSsid = pr.getString("ssid", ""); String pass = pr.getString("pass", "");
   netToken = pr.getString("token", ""); tzRule = pr.getString("tz", "");
   pr.end();
   if (!wifiSsid.length()) { WiFi.mode(WIFI_OFF); Serial.println("wifi not set up"); return; }
-  WiFi.mode(WIFI_STA); WiFi.setHostname("lump"); WiFi.setAutoReconnect(true);
+  WiFi.mode(WIFI_STA); WiFi.setHostname("sage"); WiFi.setAutoReconnect(true);
   WiFi.begin(wifiSsid.c_str(), pass.c_str());
   if (tzRule.length()) configTzTime(tzRule.c_str(), "pool.ntp.org", "time.apple.com");
   server.begin(); server.setNoDelay(true);
@@ -627,7 +618,7 @@ static void wifiBegin() {
 // "w <ssid>\t<password>\t<token>\t<tz>" saves and restarts; "w" alone forgets
 static void setWifi(String a) {
   if (a.startsWith(" ")) a = a.substring(1);
-  Preferences pr; pr.begin("lump", false);
+  Preferences pr; pr.begin("sage", false);
   if (!a.length()) { pr.clear(); pr.end(); say("ok wifi forgotten, restarting"); Serial.flush(); delay(300); ESP.restart(); }
   String f[4]; int n = 0, from = 0;
   for (int i = 0; i <= (int)a.length() && n < 4; i++)
@@ -650,10 +641,10 @@ static void pollNet() {
   if (!wifiStarted) return;
   static uint32_t lastCheck = 0; static String buf;
   uint32_t now = millis();
-  if (now - lastCheck > 1000) {                // announce lump.local whenever we're on the network
+  if (now - lastCheck > 1000) {                // announce sage.local whenever we're on the network
     lastCheck = now;
     bool up = WiFi.status() == WL_CONNECTED;
-    if (up && !mdnsUp) { mdnsUp = MDNS.begin("lump"); if (mdnsUp) { MDNS.addService("deskbuddy", "tcp", NET_PORT); Serial.printf("wifi up %s\n", WiFi.localIP().toString().c_str()); } }
+    if (up && !mdnsUp) { mdnsUp = MDNS.begin("sage"); if (mdnsUp) { MDNS.addService("deskbuddy", "tcp", NET_PORT); Serial.printf("wifi up %s\n", WiFi.localIP().toString().c_str()); } }
     else if (!up && mdnsUp) { MDNS.end(); mdnsUp = false; }
   }
   WiFiClient c = server.accept();
@@ -670,7 +661,7 @@ static void pollNet() {
 // ---------- updates over Wi-Fi ----------
 static WebServer web(80);
 static uint32_t restartAt = 0;
-static bool webAuthed() { return netToken.length() >= 8 && web.header("X-Lump-Token") == netToken; }
+static bool webAuthed() { return netToken.length() >= 8 && web.header("X-Sage-Token") == netToken; }
 static String hex(const uint8_t* b, int n) { static const char* H = "0123456789abcdef"; String s; for (int i = 0; i < n; i++) { s += H[b[i] >> 4]; s += H[b[i] & 15]; } return s; }
 // SHA-256 of the first len bytes of a partition (len 0 = nothing to compare: empty string)
 static String partSha(const esp_partition_t* part, size_t len) {
@@ -685,7 +676,7 @@ static String partSha(const esp_partition_t* part, size_t len) {
   uint8_t out[32]; mbedtls_sha256_finish(&c, out); mbedtls_sha256_free(&c);
   return hex(out, 32);
 }
-// shown on the glass while an update streams in (drawn straight to the screen: he isn't animating)
+// shown on the glass while an update streams in (drawn straight to the screen: it isn't animating)
 static void progress(const char* what, size_t done, size_t total) {
   static uint32_t last = 0;
   if (done && done != total && millis() - last < 150) return;
@@ -715,10 +706,10 @@ static void onAppData() {
   if (r.status == RAW_START) {
     upOk = webAuthed(); upErr = upOk ? "" : "pairing token needed";
     if (!upOk) return;
-    upSize = web.header("X-Lump-Size").toInt();
+    upSize = web.header("X-Sage-Size").toInt();
     A.ok = false; progress("updating program", 0, upSize);
     if (!Update.begin(upSize ? upSize : UPDATE_SIZE_UNKNOWN)) return upFail(String("begin: ") + Update.errorString());
-    if (web.header("X-Lump-MD5").length() == 32) Update.setMD5(web.header("X-Lump-MD5").c_str());
+    if (web.header("X-Sage-MD5").length() == 32) Update.setMD5(web.header("X-Sage-MD5").c_str());
   } else if (r.status == RAW_WRITE && upOk) {
     if (Update.write(r.buf, r.currentSize) != r.currentSize) return upFail(String("write: ") + Update.errorString());
     progress("updating program", r.totalSize, upSize);
@@ -731,13 +722,13 @@ static void onArtData() {
   if (r.status == RAW_START) {
     upOk = webAuthed(); upErr = upOk ? "" : "pairing token needed";
     if (!upOk) return;
-    upSize = web.header("X-Lump-Size").toInt(); upErased = 0;
+    upSize = web.header("X-Sage-Size").toInt(); upErased = 0;
     if (!artPart || !upSize || upSize > artPart->size) return upFail("art missing size or too big for the partition");
     A.ok = false; progress("updating drawings", 0, upSize);
     mbedtls_sha256_init(&upSha); mbedtls_sha256_starts(&upSha, 0);
   } else if (r.status == RAW_WRITE && upOk) {
     size_t at = r.totalSize - r.currentSize;
-    if (at + r.currentSize > upSize) return upFail("more data than X-Lump-Size");
+    if (at + r.currentSize > upSize) return upFail("more data than X-Sage-Size");
     while (upErased < at + r.currentSize) {        // erase 64 KB blocks just ahead of the data
       size_t n = min<size_t>(0x10000, artPart->size - upErased);
       if (esp_partition_erase_range(artPart, upErased, n) != ESP_OK) return upFail("erase failed");
@@ -749,7 +740,7 @@ static void onArtData() {
   } else if (r.status == RAW_END && upOk) {
     uint8_t out[32]; mbedtls_sha256_finish(&upSha, out);
     if (r.totalSize != upSize) return upFail("size mismatch");
-    String want = web.header("X-Lump-Sha256"); want.toLowerCase();
+    String want = web.header("X-Sage-Sha256"); want.toLowerCase();
     if (want.length() && want != hex(out, 32)) return upFail("sha256 mismatch");
   } else if (r.status == RAW_ABORTED) upFail("upload cut short");
 }
@@ -760,7 +751,10 @@ static void onUpdateDone() {
     if (upErr != "pairing token needed") restartAt = millis() + 500;   // the screen was taken over: start clean
   }
 }
-static bool clipBusy(int si) { return A.src[curSeq] == si || (pendingEvent >= 0 && A.src[pendingEvent] == si); }
+static bool clipBusy(int si) {
+  for (int s : {curSeq, pendingEvent, pendingThen, follow}) if (s >= 0 && A.src[s] == si) return true;
+  return false;
+}
 // Forget a clip: its sequences close up in the list and its memory is freed.
 static void dropClip(int si) {
   int w = 0;
@@ -770,12 +764,14 @@ static void dropClip(int si) {
       A.kind[w] = A.kind[s]; A.from[w] = A.from[s]; A.to[w] = A.to[s]; A.src[w] = A.src[s]; A.len[w] = A.len[s]; A.seq[w] = A.seq[s]; A.name[w] = A.name[s];
       if (curSeq == s) curSeq = w;
       if (pendingEvent == s) pendingEvent = w;
+      if (pendingThen == s) pendingThen = w;
+      if (follow == s) follow = w;
     }
     w++;
   }
   A.nSeqs = w; win.forget(); free(A.srcs[si].own); A.srcs[si] = Src();
 }
-// Make room by dropping the clip played longest ago; false if there's none he can drop.
+// Make room by dropping the clip played longest ago; false if there's none it can drop.
 static bool dropOldestClip() {
   int old = -1;
   for (int i = 1; i < MAX_SRC; i++) if (A.srcs[i].own && !A.srcs[i].tap && !clipBusy(i) && (old < 0 || int32_t(A.srcs[i].used - A.srcs[old].used) < 0)) old = i;
@@ -784,11 +780,11 @@ static bool dropOldestClip() {
   dropClip(old);
   return true;
 }
-// A clip arrives whole in buf (which we own from here on success). One with a name he already has
+// A clip arrives whole in buf (which we own from here on success). One with a name it already has
 // replaces the older one.
 static String addClip(uint8_t* buf, size_t size, String name, bool tap) {
   name.toLowerCase();
-  if (!name.length()) return "a clip needs a name (X-Lump-Name)";
+  if (!name.length()) return "a clip needs a name (X-Sage-Name)";
   for (int i = 1; i < MAX_SRC; i++) if (A.srcs[i].own && A.srcs[i].name == name) {
     if (clipBusy(i)) return "that clip is playing, try again";
     dropClip(i);
@@ -802,7 +798,7 @@ static String addClip(uint8_t* buf, size_t size, String name, bool tap) {
       return "";
     }
     if (si > 0) A.srcs[si] = Src();
-    if (!dropOldestClip()) return "not a clip he can read";       // with nothing left to drop, the clip itself is the problem
+    if (!dropOldestClip()) return "not a clip it can read";       // with nothing left to drop, the clip itself is the problem
   }
 }
 static uint8_t* clipBuf = nullptr; static size_t clipSize = 0; static String clipErr;
@@ -810,26 +806,26 @@ static void clipFail(const char* e) { clipErr = e; free(clipBuf); clipBuf = null
 static void onClipData() {
   HTTPRaw& r = web.raw();
   if (r.status == RAW_START) {
-    clipFail(""); clipSize = web.header("X-Lump-Size").toInt();
+    clipFail(""); clipSize = web.header("X-Sage-Size").toInt();
     if (!webAuthed()) return clipFail("pairing token needed");
-    if (!A.ok) return clipFail("he has no drawings to add it to");
-    if (!clipSize || clipSize > 2 * 1024 * 1024) return clipFail("missing X-Lump-Size, or over 2 MB");
+    if (!A.ok) return clipFail("it has no drawings to add it to");
+    if (!clipSize || clipSize > 2 * 1024 * 1024) return clipFail("missing X-Sage-Size, or over 2 MB");
     clipBuf = (uint8_t*)heap_caps_malloc(clipSize, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (!clipBuf) clipFail("out of memory");
   } else if (r.status == RAW_WRITE && clipBuf) {
     size_t at = r.totalSize - r.currentSize;
-    if (at + r.currentSize > clipSize) return clipFail("more data than X-Lump-Size");
+    if (at + r.currentSize > clipSize) return clipFail("more data than X-Sage-Size");
     memcpy(clipBuf + at, r.buf, r.currentSize);
   } else if (r.status == RAW_END && clipBuf) { if (r.totalSize != clipSize) clipFail("size mismatch"); }
   else if (r.status == RAW_ABORTED) clipFail("upload cut short");
 }
 static void onClipDone() {
-  if (clipBuf) { clipErr = addClip(clipBuf, clipSize, web.header("X-Lump-Name"), web.header("X-Lump-Tap") == "1"); if (clipErr.length()) free(clipBuf); clipBuf = nullptr; }
+  if (clipBuf) { clipErr = addClip(clipBuf, clipSize, web.header("X-Sage-Name"), web.header("X-Sage-Tap") == "1"); if (clipErr.length()) free(clipBuf); clipBuf = nullptr; }
   if (clipErr.length()) web.send(clipErr == "pairing token needed" ? 401 : 400, "text/plain", "err " + clipErr + "\n");
   else web.send(200, "text/plain", "ok\n");
 }
 static void webBegin() {
-  static const char* keep[] = {"X-Lump-Token", "X-Lump-Size", "X-Lump-MD5", "X-Lump-Sha256", "X-Lump-Name", "X-Lump-Tap"};
+  static const char* keep[] = {"X-Sage-Token", "X-Sage-Size", "X-Sage-MD5", "X-Sage-Sha256", "X-Sage-Name", "X-Sage-Tap"};
   web.collectHeaders(keep, 6);
   web.on("/info", HTTP_GET, onInfo);
   web.on("/update/app", HTTP_POST, onUpdateDone, onAppData);
@@ -850,18 +846,19 @@ void setup() {
   win.buf = (uint8_t*)heap_caps_calloc(packed::WINDOW + packed::SLACK, 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT); win.dec = &inflater;
   if (!cv.acc || !win.buf || !mapArt() || !parseArt(art, artSize, 0)) {
     A.ok = false;
-    Serial.println("err lump art missing or bad (send it: tools/ota.py --art)");
+    Serial.println("err art missing or bad (send it: tools/ota.py --art)");
     tft.setTextColor(lgfx::color565(255, 241, 220)); tft.setTextDatum(middle_center);
     tft.drawString("no drawings yet", 120, 104); tft.drawString("tools/ota.py --art", 120, 124);
     wifiBegin();                                   // still reachable, so the art can be sent
     return;
   }
   A.ok = true;
-  Serial.printf("desk-buddy lump ready: %u moods, %u sequences, %u frames\n", A.nMoods, A.nSeqs, A.nFrames);
+  Serial.printf("sage ready: %u moods, %u sequences, %u frames\n", A.nMoods, A.nSeqs, A.nFrames);
   randomSeed(esp_random());
   if (imuInit()) { xTaskCreatePinnedToCore(imuTask, "imu", 4096, nullptr, 2, nullptr, 0); Serial.println("imu ready"); }
   else Serial.println("imu not found");
   curMood = target = 0; startSeq(A.loopOf[0]); loopSince = millis();
+  playEvent("glyph_form");                         // out of the rain, if the art has it
   wifiBegin();
 }
 
@@ -873,10 +870,10 @@ void loop() {
   if (!A.ok) { delay(20); return; }
   if (tapPending) {
     tapPending = false;
-    say("tap");                                    // the bridge decides what a tap means for Claude
-    playEvent("tap");                              // he reacts in every mood (the bridge may then move him on)
+    say("tap");                                    // the bridge decides what a tap means, and its mind what plays
+    if (offline) playEvent("tap");                 // on its own, it answers itself
   }
-  uint32_t now = millis();                         // read after the tap: a gag started this pass must not look old
+  uint32_t now = millis();                         // read after the tap: an act started this pass must not look old
   runDemo(now);
   runOffline(now);
   autoBehaviour(now);

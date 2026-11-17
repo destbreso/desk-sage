@@ -63,7 +63,7 @@ const summary = rows => ({
 
 export function compare(file, refsFile = null, exe = buildGlyphCheck()) {
   const buf = new Uint8Array(readFileSync(file));
-  if (String.fromCharCode(...buf.subarray(0, 4)) !== 'LUMP') throw new Error(`${file} is not a .bin or a clip`);
+  if (!['SAGE', 'LUMP'].includes(String.fromCharCode(...buf.subarray(0, 4)))) throw new Error(`${file} is not a .bin or a clip`);
   const S = frameTable(buf), atlas = emptyAtlas();
   if (S.version < 6) return { frames: 0 };
   const atlasEnd = parseAtlas(buf, S.atlas, S.offsets, atlas);

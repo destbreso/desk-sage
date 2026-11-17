@@ -1,5 +1,5 @@
 // Small .bin files written by hand for the tests, in the layout tools/export_frames.py documents
-// (version 5 unless asked): moods [[name, base]], sequences [[kind, from, to, name, [frame per tick]]],
+// (version 5 and the magic SAGE unless asked; the board also reads LUMP, what the bake wrote before): moods [[name, base]], sequences [[kind, from, to, name, [frame per tick]]],
 // frames as {rle: [[count, rgb565], ...]}, {ops: [byte, ...]} or, from version 6, {glyphs: [bg, [[x, y, atlas index, rgb565], ...]]};
 // a version 6 file carries its atlas as [{left, top, w, h, cov: [0..15 a pixel, row by row]}]. From version 7 a frame
 // with pack: true is stored compressed, and with base: i (another packed frame's index) after that frame's bytes.
@@ -7,12 +7,12 @@
 import { deflateRawSync } from 'node:zlib';
 import { adler32 } from '../packed.mjs';
 
-export function encode({ version = 5, fps = 24, moods, seqs, frames, atlas = [] }) {
+export function encode({ version = 5, fps = 24, moods, seqs, frames, atlas = [], magic = 'SAGE' }) {
   const out = [];
   const u8 = v => out.push(v & 255), u16 = v => out.push(v & 255, (v >> 8) & 255);
   const u32 = v => out.push(v & 255, (v >>> 8) & 255, (v >>> 16) & 255, (v >>> 24) & 255);
   const str = s => { u8(s.length); for (const c of s) u8(c.charCodeAt(0)); };
-  for (const c of 'LUMP') u8(c.charCodeAt(0));
+  for (const c of magic) u8(c.charCodeAt(0));
   u16(version); u16(frames.length); u8(moods.length); u8(fps);
   for (const [name, base] of moods) { u8(base); str(name); }
   if (version >= 5) u16(seqs.length); else u8(seqs.length);
@@ -68,4 +68,13 @@ export function solidOps(r, g, b) {
 export function clip(name, home = 'idle', ticks = 4, moods = [['idle', 0]]) {
   const m = moods.findIndex(([n]) => n === home);
   return encode({ moods, seqs: [[2, m, m, name, Array(ticks).fill(0)]], frames: [solidOps(40, 40, 40)] });
+}
+
+// An art shaped as Sage's: every act starts from idle, among them the rain's hand-over (glyph_form, glyph_dissolve),
+// a hello, taps (tap_dizzy among them, which the board never picks for a tap) and fidgets; each act a second long.
+export function sageLike({ acts = ['glyph_form', 'glyph_dissolve', 'hello', 'tap_hello', 'tap_knock', 'tap_dizzy', 'fidget_look', 'fidget_turn', 'fidget_mark'], magic } = {}) {
+  const moods = [['idle', 0], ['working', 1], ['alert', 2], ['night', 3]];
+  const loops = moods.map(([n], i) => [0, i, i, n, [0, 0]]);
+  const trans = [1, 2, 3].flatMap(i => [[1, 0, i, `idle_to_${moods[i][0]}`, Array(12).fill(0)], [1, i, 0, `${moods[i][0]}_to_idle`, Array(12).fill(0)]]);
+  return encode({ moods, seqs: [...loops, ...trans, ...acts.map(a => [2, 0, 0, a, Array(24).fill(0)])], frames: [solidOps(30, 30, 30)], ...(magic ? { magic } : {}) });
 }

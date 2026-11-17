@@ -30,7 +30,7 @@ export { frameTable };
 
 export function compare(file, exe = buildVecCheck()) {
   const buf = new Uint8Array(readFileSync(file));
-  if (String.fromCharCode(...buf.subarray(0, 4)) !== 'LUMP') throw new Error(`${file} is not a .bin or a clip`);
+  if (!['SAGE', 'LUMP'].includes(String.fromCharCode(...buf.subarray(0, 4)))) throw new Error(`${file} is not a .bin or a clip`);
   const T = frameTable(buf), frames = unpack(buf, inflate), cv = new Canvas(), rgba = new Uint8Array(W * H * 4), feed = [], js = [];
   const refused = frames.flatMap((fr, f) => fr ? [] : [f]);
   for (let f = 0; f < frames.length; f++) {

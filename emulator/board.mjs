@@ -19,16 +19,6 @@ export const HOST_TIMEOUT_MS = 60000, OFFLINE_MARK_AFTER_MS = 8000;
 export const NIGHT_FROM = 0, NIGHT_UNTIL = 8;
 export const TAP_GAP_MS = 600;                                  // imuTask: a jolt this soon after a tap is the same tap
 export const CLIP_MAX_BYTES = 2 * 1024 * 1024;
-export const GAGS = ['shock', 'moto', 'wolf', 'accordion', 'anvil', 'disco', 'banana', 'balloon', 'sneeze', 'moon', 'bomb'];
-export const FIDGETS = ['fidget_toss', 'fidget_twitch', 'fidget_bubble'];
-const GAG_WEIGHTS = GAGS.map(() => 2);
-const DEMO = [   // runDemo()'s showcase
-  ['s', 'idle', 6000], ['e', 'fidget_bubble', 6500], ['e', 'fidget_twitch', 3500],
-  ['s', 'working', 6000], ['e', 'oops', 7000], ['e', 'tap', 5000], ['s', 'longhaul', 6500],
-  ['s', 'alert', 6000], ['s', 'waiting', 9000], ['s', 'done', 5000], ['e', 'tap', 4500],
-  ['s', 'idle', 4000], ['e', 'fidget_toss', 5500], ['e', 'hello', 7000],
-  ['s', 'night', 9000], ['s', 'idle', 3000],
-];
 
 const rd16 = (b, p) => b[p] | (b[p + 1] << 8);
 const rd32 = (b, p) => (b[p] | (b[p + 1] << 8) | (b[p + 2] << 16) | (b[p + 3] << 24)) >>> 0;
@@ -66,9 +56,10 @@ export class Board {
     this.problems = [];                                        // what the board would do wrong with this art (shown, not emulated)
     // player
     this.target = 0; this.curMood = 0; this.curSeq = 0; this.pendingEvent = -1;
+    this.pendingThen = -1; this.follow = -1;                   // an act that goes on at once from the pending one, and from the one playing
     this.seqStart = 0; this.loopSince = 0; this.nextFidget = 0; this.lastFrame = -1; this.fps = 0;
-    this.lastGag = -1; this.lastTapClip = -1; this.prepMode = false;
-    this.demo = false; this.demoStep = -1; this.demoNext = 0;
+    this.lastTapAct = ''; this.lastFidgetAct = '';
+    this.demo = false; this.demoStep = -1; this.demoMood = -1; this.demoAct = -1; this.demoNext = 0;
     // body colour: Tangerine, fading toward its goal
     this.tintR = 255; this.tintG = 122; this.tintB = 69; this.goalR = 255; this.goalG = 122; this.goalB = 69;
     // backlight
@@ -86,18 +77,19 @@ export class Board {
 
   say(line) { this.out(line); }                                // say(): USB (and the Wi-Fi client, which the emulator has not)
 
-  // ---------- setup(): the art parsed, the boot mood started ----------
+  // ---------- setup(): the art parsed, the boot mood started, and out of the rain if the art has it ----------
   setup(art) {
     this.analogWrite(BL_DAY);
     this.A.ok = !!art && this.parseArt(art, art.length, 0);
     if (!this.A.ok) {
       this.noArt = true;
-      this.say('err lump art missing or bad (send it: tools/ota.py --art)');
+      this.say('err art missing or bad (send it: tools/ota.py --art)');
       return false;
     }
-    this.say(`desk-buddy lump ready: ${this.A.nMoods} moods, ${this.A.nSeqs} sequences, ${this.A.nFrames} frames`);
+    this.say(`sage ready: ${this.A.nMoods} moods, ${this.A.nSeqs} sequences, ${this.A.nFrames} frames`);
     this.say('imu ready');
     this.curMood = this.target = 0; this.startSeq(this.A.loopOf[0]); this.loopSince = this.millis();
+    this.playEvent('glyph_form');
     this.say('wifi not set up');
     return true;
   }
@@ -109,7 +101,8 @@ export class Board {
     let p = 0;
     const end = size, room = n => end - p >= n, clip = si > 0;
     const rdStr = () => { const n = buf[p++]; const s = decoder.decode(buf.subarray(p, p + n)); p += n; return s; };
-    if (buf[0] !== 0x4C || buf[1] !== 0x55 || buf[2] !== 0x4D || buf[3] !== 0x50) return false;   // "LUMP"
+    const magic = decoder.decode(buf.subarray(0, 4));
+    if (magic !== 'SAGE' && magic !== 'LUMP') return false;     // LUMP: what the bake wrote before
     p += 4;
     const version = rd16(buf, p); p += 2;            // 3: every frame is pixels. 4: a frame may be instructions. 5: up to 65535 sequences. 6: glyph frames and their atlas. 7: compressed frames
     if (version < 3 || version > 7) return false;
@@ -219,24 +212,24 @@ export class Board {
   settle(m) {                                                  // arrived in mood m's loop
     const A = this.A;
     this.curMood = m;
+    if (this.follow >= 0) { const f = this.follow; this.follow = -1; if (A.from[f] === m) return this.startSeq(f); }
     if (this.target !== m) {
       const h = this.nextHop(m, this.target);
       if (h >= 0) return this.startSeq(h);
       this.problem(`no transition drawn from ${A.moodName[m]} toward ${A.moodName[this.target]}: the board cuts`);
       this.curMood = m = this.target;                          // nothing drawn for this route: cut
     }
-    // a gag queued for a mood the board never settled in: the same gag in the mood it landed in
+    // an act queued for a mood the board never settled in: the same act drawn for the mood it landed in (name_<mood>)
     if (this.pendingEvent >= 0 && A.from[this.pendingEvent] !== m) {
       const n = A.name[this.pendingEvent], u = n.lastIndexOf('_');
       let e2 = -1;
       if (u > 0) { e2 = this.eventIndex(n.substring(0, u) + '_' + A.moodName[m]); if (e2 < 0) e2 = this.eventIndex(n.substring(0, u) + '_' + A.moodName[A.base[m]]); }
       this.pendingEvent = e2;
+      if (e2 < 0) this.pendingThen = -1;
     }
     if (this.pendingEvent >= 0 && A.from[this.pendingEvent] === m) {
       const e = this.pendingEvent;
-      this.pendingEvent = -1;
-      if (A.name[e].startsWith('tap_')) this.say(`gag ${A.name[e]}`);
-      else if (A.srcs[A.src[e]].tap) this.say(`tapclip ${A.name[e]}`);
+      this.pendingEvent = -1; this.follow = this.pendingThen; this.pendingThen = -1;
       return this.startSeq(e);
     }
     this.startSeq(A.loopOf[m]); this.loopSince = this.millis();
@@ -250,49 +243,54 @@ export class Board {
     if (!this.problems.includes(text)) this.problems.push(text);
   }
 
-  // pickTap(): one of the built-in gags at random, never the same one twice running
-  pickTap() {
-    let total = 0;
-    for (let i = 0; i < GAGS.length; i++) if (i !== this.lastGag) total += GAG_WEIGHTS[i];
-    let x = this.random(total);
-    for (let i = 0; i < GAGS.length; i++) { if (i === this.lastGag) continue; if ((x -= GAG_WEIGHTS[i]) < 0) { this.lastGag = i; return GAGS[i]; } }
-    return GAGS[0];
+  // pickable(), moodTier() and pickAct(): the board's own choice of an act (a tap's, a fidget's) from whatever the art
+  // and the clips hold: named prefix*, or for a tap one of a tap reaction's clip; never `except`; drawn for the target
+  // mood if any is (else its base mood, else any); never the one chosen last time while there is another. '' if none.
+  pickable(i, prefix, except) {
+    const A = this.A;
+    if (A.kind[i] !== EVENT || A.name[i] === except) return false;
+    const tapClip = A.srcs[A.src[i]].tap && prefix === 'tap_';
+    return (A.name[i].startsWith(prefix) || tapClip) && this.eventIndex(A.name[i]) === i;    // each name once: its newest
   }
-  // pickTapClip(): now and then a tap reaction the bridge sent, each as likely as one of the built-in gags
-  pickTapClip() {
-    const A = this.A, ids = [];
-    for (let i = 1; i < MAX_SRC; i++) if (A.srcs[i].own && A.srcs[i].tap && i !== this.lastTapClip) ids.push(i);
-    if (!ids.length || this.random(11 + ids.length) < 11) return '';
-    this.lastTapClip = ids[this.random(ids.length)];
-    for (let s = 0; s < A.nSeqs; s++) if (A.src[s] === this.lastTapClip && A.kind[s] === EVENT) return A.name[s];
+  moodTier(i) { const A = this.A; return A.from[i] === this.target ? 0 : A.from[i] === A.base[this.target] ? 1 : 2; }
+  pickAct(prefix, except, last) {                              // last: 'lastTapAct' or 'lastFidgetAct', the board's memory of it
+    const A = this.A;
+    let tier = 3, n = 0, fresh = 0;
+    for (let i = 0; i < A.nSeqs; i++) if (this.pickable(i, prefix, except)) tier = Math.min(tier, this.moodTier(i));
+    for (let i = 0; i < A.nSeqs; i++) if (this.pickable(i, prefix, except) && this.moodTier(i) === tier) { n++; if (A.name[i] !== this[last]) fresh++; }
+    if (!n) return '';
+    let k = this.random(fresh ? fresh : n);
+    for (let i = 0; i < A.nSeqs; i++)
+      if (this.pickable(i, prefix, except) && this.moodTier(i) === tier && (!fresh || A.name[i] !== this[last]) && k-- === 0) return (this[last] = A.name[i]);
     return '';
   }
-  playEvent(n) {                                               // false if there's no such event
+  playEvent(n, then = -1) {                                    // false if there's no such act; then: one to go on to at once
     const A = this.A;
-    if (n === 'tap') {
-      const m = A.moodName[this.target];
-      if (m === 'night') n = 'tap_startle';
-      else if (this.prepMode || m === 'meeting') n = 'tap_prep';
-      else { n = this.pickTapClip(); if (!n.length) n = 'tap_' + this.pickTap(); }
-    }
+    if (n === 'tap') n = this.pickAct('tap_', 'tap_dizzy', 'lastTapAct');     // dizzy is its patience run out, not an answer to a tap
+    else if (n === 'fidget') n = this.pickAct('fidget_', '', 'lastFidgetAct');
+    if (!n.length) return false;
     let e = this.eventIndex(n);
-    if (e < 0) {                                               // generic names resolve per mood: tap_idle, tap_working, ...
+    if (e < 0) {                                               // a name resolves per mood to the one drawn for it: name_idle, name_working, ...
       e = this.eventIndex(n + '_' + A.moodName[this.target]);
       if (e < 0) e = this.eventIndex(n + '_' + A.moodName[A.base[this.target]]);
     }
     if (e < 0) return false;
-    this.pendingEvent = e;
+    this.pendingEvent = e; this.pendingThen = then;
     if (this.target !== A.from[e]) this.setTarget(A.from[e]); else if (A.kind[this.curSeq] === LOOP) this.settle(this.curMood);
     return true;
   }
 
-  // ---------- runDemo(): a showcase of every mood and event ----------
+  // ---------- runDemo(): every mood and every act of the art, in turn ----------
   runDemo(now) {
+    const A = this.A;
     if (!this.demo || now < this.demoNext) return;
-    this.demoStep = (this.demoStep + 1) % DEMO.length;
-    const [type, name, ms] = DEMO[this.demoStep];
-    if (type === 's') this.setTarget(this.moodIndex(name)); else this.playEvent(name);
-    this.demoNext = now + ms;
+    if (++this.demoStep % 2 === 0) {                           // a mood for six seconds, with its transitions
+      this.demoMood = (this.demoMood + 1) % A.nMoods; this.setTarget(this.demoMood); this.demoNext = now + 6000;
+      return;
+    }
+    for (let k = 0; k < A.nSeqs; k++) if (A.kind[this.demoAct = (this.demoAct + 1) % A.nSeqs] === EVENT) break;
+    this.demoNext = now + 1000;
+    if (A.kind[this.demoAct] === EVENT && this.playEvent(A.name[this.demoAct])) this.demoNext = now + Math.floor(A.len[this.demoAct] * 1000 / A.fps) + 3000;
   }
 
   // ---------- autoBehaviour(): fidgets with no bridge, alert to waiting, working to longhaul ----------
@@ -302,10 +300,10 @@ export class Board {
     const m = A.moodName[this.curMood];
     if (m === 'idle' && this.pendingEvent < 0 && !this.hostAlive(now)) {     // with the bridge connected, it decides when to fidget
       if (!this.nextFidget) this.nextFidget = now + 40000 + this.random(50000);
-      if (now > this.nextFidget) { this.nextFidget = 0; this.playEvent(FIDGETS[this.random(3)]); }
+      if (now > this.nextFidget) { this.nextFidget = 0; this.playEvent('fidget'); }
     } else this.nextFidget = 0;
-    if (m === 'alert' && now - this.loopSince > ESCALATE_MS) this.setTarget(this.moodIndex('waiting'));
-    if (m === 'working' && now - this.loopSince > LONGHAUL_MS) this.setTarget(this.moodIndex('longhaul'));
+    const next = m === 'alert' && now - this.loopSince > ESCALATE_MS ? this.moodIndex('waiting') : m === 'working' && now - this.loopSince > LONGHAUL_MS ? this.moodIndex('longhaul') : -1;
+    if (next >= 0) this.setTarget(next);                        // only a mood the art has
   }
 
   // ---------- backlight(): dims gently at night ----------
@@ -331,16 +329,19 @@ export class Board {
     if (this.clockBase < 0) return false;
     return this.nightHour(Math.floor(((this.clockBase + Math.floor((now - this.clockAt) / 1000)) % 86400) / 3600));
   }
+  asleep(now) { return this.nightNow(now) || this.A.moodName[this.target] === 'night'; }   // it notices neither the bridge going nor coming back
   heardFromHost() {
-    const was = this.offline;
+    const was = this.offline, back = this.offline && this.hostSeen;     // it had the bridge before, and lost it
     this.lastHost = this.millis(); this.hostSeen = true; this.offline = false;
     if (was) this.say('resync');                               // the bridge resends mood, colour and corner extras
+    if (back && this.A.ok && !this.demo && !this.asleep(this.lastHost)) this.playEvent('hello');
   }
   runOffline(now) {
-    if (!this.offline && !this.hostAlive(now)) {                 // lost the bridge: forget what it last told us
+    if (!this.offline && !this.hostAlive(now)) {                 // lost the bridge: forget what it last told us, and go into the rain
       this.offline = true;
-      this.ovWorking = this.ovWaiting = this.ovUnseen = 0; this.prepMode = false;
+      this.ovWorking = this.ovWaiting = this.ovUnseen = 0;
       this.goalR = 255; this.goalG = 122; this.goalB = 69;
+      if (!this.demo && !this.asleep(now)) this.playEvent('glyph_dissolve', this.eventIndex('glyph_form'));
     }
     if (!this.offline || this.demo) return;
     const want = this.moodIndex(this.nightNow(now) ? 'night' : 'idle');
@@ -442,7 +443,6 @@ export class Board {
       return;
     }
     if (cmd === 'X') { this.tapPending = true; return; }       // pretend the glass was tapped
-    if (cmd === 'p') { this.prepMode = toInt(arg) !== 0; this.say(`ok prep=${this.prepMode ? 1 : 0}`); return; }
     if (cmd === '?') return this.reply();
     this.say('err unknown command');
   }
@@ -457,7 +457,7 @@ export class Board {
   }
 
   // ---------- clips: POST /clip ----------
-  clipBusy(si) { return this.A.src[this.curSeq] === si || (this.pendingEvent >= 0 && this.A.src[this.pendingEvent] === si); }
+  clipBusy(si) { return [this.curSeq, this.pendingEvent, this.pendingThen, this.follow].some(s => s >= 0 && this.A.src[s] === si); }
   dropClip(si) {                                               // its sequences close up in the list and its memory is freed
     const A = this.A;
     let w = 0;
@@ -468,6 +468,8 @@ export class Board {
         A.seqBuf[w] = A.seqBuf[s]; A.seq[w] = A.seq[s]; A.name[w] = A.name[s];
         if (this.curSeq === s) this.curSeq = w;
         if (this.pendingEvent === s) this.pendingEvent = w;
+        if (this.pendingThen === s) this.pendingThen = w;
+        if (this.follow === s) this.follow = w;
       }
       w++;
     }
@@ -485,7 +487,7 @@ export class Board {
   addClip(buf, name, tap) {                                    // '' or what went wrong; a clip of a name already there replaces it
     const A = this.A;
     name = name.toLowerCase();
-    if (!name.length) return 'a clip needs a name (X-Lump-Name)';
+    if (!name.length) return 'a clip needs a name (X-Sage-Name)';
     for (let i = 1; i < MAX_SRC; i++) if (A.srcs[i].own && A.srcs[i].name === name) {
       if (this.clipBusy(i)) return 'that clip is playing, try again';
       this.dropClip(i);
@@ -499,14 +501,14 @@ export class Board {
         return '';
       }
       if (si > 0) A.srcs[si] = newSrc();
-      if (!this.dropOldestClip()) return 'not a clip he can read';     // with nothing left to drop, the clip itself is the problem
+      if (!this.dropOldestClip()) return 'not a clip it can read';     // with nothing left to drop, the clip itself is the problem
     }
   }
   // onClipData() and onClipDone(): the HTTP status and body the board answers with
   postClip(buf, name, tap = false) {
     let err = '';
-    if (!this.A.ok) err = 'he has no drawings to add it to';
-    else if (!buf.length || buf.length > CLIP_MAX_BYTES) err = 'missing X-Lump-Size, or over 2 MB';
+    if (!this.A.ok) err = 'it has no drawings to add it to';
+    else if (!buf.length || buf.length > CLIP_MAX_BYTES) err = 'missing X-Sage-Size, or over 2 MB';
     else err = this.addClip(buf, name, tap);
     return err ? { status: 400, body: 'err ' + err } : { status: 200, body: 'ok' };
   }
@@ -523,10 +525,10 @@ export class Board {
     const A = this.A;
     if (this.tapPending) {
       this.tapPending = false;
-      this.say('tap');                                         // the bridge decides what a tap means for Claude
-      this.playEvent('tap');
+      this.say('tap');                                         // the bridge decides what a tap means, and its mind what plays
+      if (this.offline) this.playEvent('tap');                 // on its own, it answers itself
     }
-    const now = this.millis();                                 // read after the tap: a gag started this pass must not look old
+    const now = this.millis();                                 // read after the tap: an act started this pass must not look old
     this.runDemo(now); this.runOffline(now); this.autoBehaviour(now); this.backlight(now);
     const age = (now - this.seqStart) | 0;                     // signed: something started after 'now' is age 0
     let tick = age > 0 ? Math.floor((Math.imul(age, A.fps) >>> 0) / 1000) : 0;   // uint32 arithmetic, as on the board
@@ -566,7 +568,7 @@ export class Board {
       kind: k === LOOP ? 'loop' : k === TRANS ? 'transition' : 'event', pending: this.pendingEvent >= 0 ? A.name[this.pendingEvent] : null,
       fps: this.fps, drawMs: this.drawMs, backlight: Math.trunc(this.blLevel),
       colour: [this.tintR, this.tintG, this.tintB].map(v => Math.round(v)), overlay: [this.ovWorking, this.ovWaiting, this.ovUnseen],
-      offline: this.offline, offlineMark: this.offlineMark(now), prep: this.prepMode, taps: this.tapCount,
+      offline: this.offline, offlineMark: this.offlineMark(now), taps: this.tapCount,
       clock: this.clockBase < 0 ? null : (this.clockBase + Math.floor((now - this.clockAt) / 1000)) % 86400,
       frames: A.nFrames, seqs: A.nSeqs, clips: this.clips(), problems: this.problems.slice(),
     };

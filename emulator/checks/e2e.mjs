@@ -117,9 +117,9 @@ try {
   await waitFor('the tap in the bridge', () => /tap: needs-you snoozed/.test(bridgeLog()));
   const tapToBridge = Date.now() - t0;
   await waitFor('the snooze back on the page', async () => (await state()).target === 'awake');
-  check('a click reaches the bridge as a tap', true, { click_to_bridge_ms: tapToBridge, click_to_new_mood_ms: Date.now() - t0, gag: (bridgeLog().match(/board: (gag \S+)/) || [])[1] || null });
+  check('a click reaches the bridge as a tap', true, { click_to_bridge_ms: tapToBridge, click_to_new_mood_ms: Date.now() - t0, mind: (bridgeLog().match(/mind: tap -> .*/) || [])[0] || null });
   await sleep(250);
-  await shoot('tap: a gag playing');
+  await shoot('tap: snoozed');
 
   // 3. a double click is one tap (the board ignores a second knock within 600 ms)
   await sleep(1500);

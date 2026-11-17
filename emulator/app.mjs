@@ -150,7 +150,7 @@ function readouts() {
     ['mode', s.mode + (s.offlineMark ? ' (unplugged mark)' : '')], ['target', s.target], ['playing', `${s.playing} (${s.kind})`],
     ['queued', s.pending || '-'], ['fps', s.fps.toFixed(1)], ['draw_ms', `${slowest.toFixed(2)} on this machine (the board's own is only measured on the board)`],
     ['backlight', `${s.backlight} / 255`], ['colour', `<span class="swatch" style="background:${hex}"></span>${hex}`],
-    ['overlay', `working ${s.overlay[0]}, waiting ${s.overlay[1]}, unseen ${s.overlay[2]}`], ['meeting prep', s.prep ? 'on' : 'off'],
+    ['overlay', `working ${s.overlay[0]}, waiting ${s.overlay[1]}, unseen ${s.overlay[2]}`],
     ['clock', clock], ['taps', String(s.taps)], ['clips', s.clips.length ? `${s.clips.length} / 32: ${s.clips.map(c => c.name + (c.tap ? ' (tap)' : '')).join(', ')}` : 'none'],
   ];
   $('readouts').innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${k === 'colour' ? v : escape(v)}</dd>`).join('');
