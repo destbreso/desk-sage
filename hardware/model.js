@@ -153,19 +153,23 @@
     const sageCanvas = canvas(240, 240);
     const sageTex = tex(sageCanvas);
     sageTex.magFilter = THREE.NearestFilter;
+    // without sage-frame.js (the emulator's Realistic mode) the display starts black and its owner draws on it (showPicture)
     const sageImg = new Image();
     const sageReady = new Promise((resolve) => {
+      if (!NS.sageFrame) return resolve();
       sageImg.onload = () => {
-        const g = sageCanvas.getContext("2d");
-        g.translate(0, 240);
-        g.scale(1, -1);
-        g.drawImage(sageImg, 0, 0);
-        sageTex.needsUpdate = true;
+        showPicture(sageImg);
         resolve();
       };
       sageImg.onerror = () => resolve();
+      sageImg.src = NS.sageFrame;
     });
-    sageImg.src = NS.sageFrame;
+    function showPicture(src) {
+      const g = sageCanvas.getContext("2d");
+      g.setTransform(1, 0, 0, -1, 0, 240);
+      g.drawImage(src, 0, 0);
+      sageTex.needsUpdate = true;
+    }
 
     // ---------- the PCB's two faces, drawn as textures: black mask, gold pads, white silkscreen ----------
     const S = 1024 / PCB.w; // px per mm
@@ -863,10 +867,10 @@
 
     // ---------- the reflection: the picture's mirror image in the lower prism's diagonal ----------
     const reflMat = new THREE.ShaderMaterial({
-      uniforms: { map: { value: sageTex }, uInv: { value: new THREE.Matrix4() }, uCam: { value: V(0, 0, 0) }, uHalf: { value: V(PRISM.x, PRISM.y, PRISM.z) }, uGain: { value: REFLECT } },
+      uniforms: { map: { value: sageTex }, uInv: { value: new THREE.Matrix4() }, uCam: { value: V(0, 0, 0) }, uHalf: { value: V(PRISM.x, PRISM.y, PRISM.z) }, uGain: { value: REFLECT }, uLight: { value: 1 } },
       vertexShader: `varying vec2 vUv; varying vec3 vW;
         void main(){ vUv = uv; vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }`,
-      fragmentShader: `uniform sampler2D map; uniform mat4 uInv; uniform vec3 uCam; uniform vec3 uHalf; uniform float uGain;
+      fragmentShader: `uniform sampler2D map; uniform mat4 uInv; uniform vec3 uCam; uniform vec3 uHalf; uniform float uGain; uniform float uLight;
         varying vec2 vUv; varying vec3 vW;
         void main(){
           // seen only where the line of sight crosses the diagonal inside the cube
@@ -875,7 +879,7 @@
           if (fc * fp >= 0.0) discard;
           vec3 q = c + (fc / (fc - fp)) * (p - c);
           if (any(greaterThan(abs(q), uHalf + 0.01))) discard;
-          gl_FragColor = vec4(texture2D(map, vUv).rgb * uGain, 1.0);
+          gl_FragColor = vec4(texture2D(map, vUv).rgb * uGain * uLight, 1.0);
           #include <colorspace_fragment>
         }`,
       transparent: true,
@@ -912,6 +916,13 @@
       reflection.matrixWorld.copy(reflection.matrix);
       reflMat.uniforms.uInv.value.copy(lowerHalf.matrixWorld).invert();
       reflMat.uniforms.uCam.value.copy(camera.position);
+    }
+    // the backlight, 0 to 1: dims the picture and its reflection as a brightness filter dims the emulator's flat view
+    const lit = new THREE.Color();
+    function setBacklight(k) {
+      lit.setRGB(k, k, k, THREE.SRGBColorSpace);
+      imagePlane.material.color.copy(lit);
+      reflMat.uniforms.uLight.value = lit.r;
     }
     function reflectionCentre(out) {
       return out.set(0, 0, 0).applyMatrix4(reflection.matrix);
@@ -961,6 +972,6 @@
     }
 
     const tops = { stand: standNode, case: caseNode, pcb: pcbNode, display: displayNode, prism: prismNode, headers: parts.get("headers").group };
-    return { root, parts, update, updateReflection, setReflection, reflectionCentre, tops, ready: sageReady, sageTex, headerNodes, imagePlane };
+    return { root, parts, update, updateReflection, setReflection, setBacklight, showPicture, reflectionCentre, tops, ready: sageReady, sageTex, headerNodes, imagePlane };
   };
 })();

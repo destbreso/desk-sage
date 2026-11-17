@@ -232,6 +232,16 @@ class TheServer(unittest.TestCase):
         with open(TESTCARD, "rb") as f:
             self.assertEqual(self.request("GET", "/emulator/art.bin")[2], f.read())
 
+    def test_realistic_takes_only_the_device_s_model_from_hardware(self):
+        status, ctype, body = self.request("GET", "/hardware/model.js")
+        self.assertEqual((status, ctype), (200, "text/javascript; charset=utf-8"))
+        self.assertIn(b"buildModel", body)
+        for path in ("/hardware/index.html", "/hardware/app.js", "/hardware/sage-frame.js", "/hardware/../tools/buddy_bridge.py", "/hardware/"):
+            self.assertEqual(self.request("GET", path)[0], 404, path)
+        self.assertEqual(self.request("GET", "/hardware/model.js", headers={"Host": "rebound.example:%d" % self.port})[0], 403)
+        for name in ("device.mjs", "commands.mjs"):
+            self.assertEqual(self.request("GET", "/emulator/" + name)[:2], (200, "text/javascript; charset=utf-8"), name)
+
     def test_another_site_s_page_is_refused(self):
         self.assertEqual(self.request("POST", "/emulator/board?page=1", b"tap\n", {"Origin": "https://example.com"})[0], 403)
         self.assertEqual(self.request("GET", "/emulator/events", headers={"Host": "rebound.example:%d" % self.port})[0], 403)
@@ -257,6 +267,7 @@ class TheServer(unittest.TestCase):
         b = bridge.Buddy(dev=FakeDevice(), focus=FakeFocus(), sounds=FakeSounds(), start=False)
         bridge.buddy = b
         self.assertEqual(self.request("GET", "/emulator/")[0], 404)
+        self.assertEqual(self.request("GET", "/hardware/model.js")[0], 404)
         self.assertEqual(self.request("POST", "/emulator/board?page=1", b"tap\n")[0], 404)
         self.assertEqual(self.request("GET", "/status")[0], 200)
 
