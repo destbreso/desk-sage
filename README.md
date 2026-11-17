@@ -20,9 +20,9 @@ This is Sage the way the board will show it. Every animation here went through t
 
 ### A day with it
 
-Almost two minutes of a typical session, from the moment it forms out of the rain to the moment it loses my Mac and carries on by itself.
+Almost two minutes of a typical day. It forms out of the rain, keeps me company while I work, and falls asleep at night. Then it loses my Mac, carries on by itself with its antenna dark, and lights up again when my Mac comes back.
 
-<p align="center"><img src="gallery/session.gif?v=550563ed" width="320" alt="A typical session with Sage, from forming out of the rain to carrying on by itself"></p>
+<p align="center"><img src="gallery/session.gif?v=8bc616ff" width="320" alt="A typical day with Sage, from forming out of the rain to my Mac coming back"></p>
 
 ### A few of its moments
 

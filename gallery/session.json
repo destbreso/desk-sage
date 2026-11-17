@@ -1,5 +1,6 @@
 {
   "session": {
+  "about": "Each link is a sequence of the art and at most how many ticks of it; a fourth item says the bridge is gone or back from that link on, which only the board draws (tools/session_gif.mjs).",
   "home": "idle",
   "chain": [
     ["glyph_form", null, "It forms out of the rain"],
@@ -30,9 +31,13 @@
     ["sleep_stir", null, "A tap in its sleep: it stirs"],
     ["night", 48, "Asleep again"],
     ["night>idle", null, "Morning"],
-    ["glyph_dissolve", null, "The bridge is gone: it falls into the rain"],
-    ["glyph_form", null, "and forms again, on its own"],
-    ["idle", 72, "Living on its own until the bridge comes back"]
+    ["glyph_dissolve", null, "The bridge is gone, and it falls into the rain", "gone"],
+    ["glyph_form", null, "It forms again, on its own"],
+    ["idle", 96, "On its own, its antenna dark"],
+    ["fidget_antenna", null, "It checks its antenna"],
+    ["idle", 72],
+    ["hello", null, "The bridge is back, and it says hello", "back"],
+    ["idle", 48]
   ]
   }
 }
