@@ -27,6 +27,7 @@ It is public, and it names no other project or repository of the author's: only 
 ## No hardware yet
 
 - Everything is built and checked in the emulator (`emulator/`) against the real bridge. The firmware is compiled but not flashed until the board arrives; a check that needs the board is said to be missing, never assumed.
+- The real firmware also runs in Espressif's QEMU (`tools/qemu/`, its README says how): flash, the ROM, PSRAM and UART0 are emulated, and its screen is compared with the emulator's; the ST7789, the IMU, Wi-Fi and the backlight are not, and no timing measured there says anything about the board.
 - Heavy jobs (bakes, renders, compiles in a loop) run under `nice -n 19`.
 
 ## The author's machine

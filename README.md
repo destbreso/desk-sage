@@ -48,11 +48,11 @@ This comes from [hardware/index.html](hardware/index.html). Open it in any brows
 - [x] Sage's mind next to the bridge, so it picks what to do, never repeats itself and has its own way of taking a tap
 - [x] What to buy and what it costs, and the hardware in 3D, taken apart
 - [x] Its antenna going dark when it can't hear my Mac
+- [x] The real firmware running in a simulated ESP32-S3, so it's tested before the board arrives
 - [ ] Its own voice, played on the Mac
 - [ ] More of my day as its senses: subagents, renders, permissions waiting on me, the site going live, me stepping away
 - [ ] Holograms that show the real numbers, like the time, my tests and its battery
 - [ ] A gallery page with every animation and what sets it off
-- [ ] The real firmware running in a simulated ESP32-S3, so it's tested before the board arrives
 - [ ] The board itself, flashed and measured, sitting on my desk
 
 The phases and the open questions are in [docs/ROADMAP.md](docs/ROADMAP.md). What's already done, and how it was checked, is in [docs/HISTORY.md](docs/HISTORY.md).
