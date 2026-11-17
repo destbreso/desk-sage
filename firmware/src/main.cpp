@@ -286,6 +286,7 @@ static void drawFrame(uint8_t src, uint16_t idx) {
 // a new target waits for the current transition/event to finish, then routes there.
 static int target = 0, curMood = 0, curSeq = 0, pendingEvent = -1;
 static int pendingThen = -1, follow = -1;     // an act that goes on at once from the pending one, and from the one playing
+static int moodAfter = -1;   // a mood asked for while an act waits that has none drawn for it: it follows the act
 static uint32_t seqStart = 0, loopSince = 0, nextFidget = 0;
 static int lastFrame = -1;
 static float fps = 0;
@@ -298,9 +299,15 @@ static int nextHop(int a, int b) {
   if (A.base[b] != b && A.transOf[a][A.base[b]] >= 0) return A.transOf[a][A.base[b]];
   return -1;
 }
+static int variantFor(int e, int m) {   // act e as drawn for mood m (name_<mood>, else its base mood's), or -1
+  String n = A.name[e]; int u = n.lastIndexOf('_'), e2 = -1;
+  if (u > 0) { e2 = eventIndex(n.substring(0, u) + "_" + A.moodName[m]); if (e2 < 0) e2 = eventIndex(n.substring(0, u) + "_" + A.moodName[A.base[m]]); }
+  return e2;
+}
 static void settle(int m) {  // arrived in mood m's loop
   curMood = m;
   if (follow >= 0) { int f = follow; follow = -1; if (A.from[f] == m) return startSeq(f); }
+  if (moodAfter >= 0 && pendingEvent < 0) { target = moodAfter; moodAfter = -1; }   // the act it waited for has played
   if (target != m) {
     int h = nextHop(m, target);
     if (h >= 0) return startSeq(h);
@@ -309,8 +316,7 @@ static void settle(int m) {  // arrived in mood m's loop
   // an act queued for a mood it never settled in (the bridge moved it on meanwhile): the same act drawn for the
   // mood it did land in (name_<mood>), if the art has one, rather than silently dropping it
   if (pendingEvent >= 0 && A.from[pendingEvent] != m) {
-    String n = A.name[pendingEvent]; int u = n.lastIndexOf('_'), e2 = -1;
-    if (u > 0) { e2 = eventIndex(n.substring(0, u) + "_" + A.moodName[m]); if (e2 < 0) e2 = eventIndex(n.substring(0, u) + "_" + A.moodName[A.base[m]]); }
+    int e2 = variantFor(pendingEvent, m);
     pendingEvent = e2;
     if (e2 < 0) pendingThen = -1;
   }
@@ -594,7 +600,7 @@ static void handleLine(String ln, bool fromNet = false) {
   heardFromHost();
   if (cmd == 'h') { long s = arg.toInt(); if (s >= 0 && s < 86400) { clockBase = s; clockAt = millis(); } return; }
   if (cmd == 's') {
-    if (arg == "demo" || arg == "cycle") { demo = true; demoNext = 0; return reply(); }
+    if (arg == "demo" || arg == "cycle") { demo = true; demoNext = 0; moodAfter = -1; return reply(); }
     int m = moodIndex(arg);
     if (m < 0) { say("err unknown mood"); return; }
     // repeating the current mood is a no-op, so the bridge can re-assert its mood without
@@ -603,7 +609,10 @@ static void handleLine(String ln, bool fromNet = false) {
     bool selfEscalated = A.moodName[target] == "waiting" || A.moodName[target] == "longhaul";
     bool same = !demo && (m == target || (selfEscalated && A.base[target] == m));
     demo = false;
-    if (!same) setTarget(m);
+    // an act still waiting to play, with none drawn for this mood, would be lost on the way there (the hello when the
+    // bridge comes back during the rain): it plays first, and this mood follows it
+    if (!same && pendingEvent >= 0 && A.from[pendingEvent] != m && variantFor(pendingEvent, m) < 0) moodAfter = m;
+    else if (!same) { moodAfter = -1; setTarget(m); }
     return reply();
   }
   if (cmd == 'e') {

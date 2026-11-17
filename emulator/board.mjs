@@ -58,6 +58,7 @@ export class Board {
     this.problems = [];                                        // what the board would do wrong with this art (shown, not emulated)
     // player
     this.target = 0; this.curMood = 0; this.curSeq = 0; this.pendingEvent = -1;
+    this.moodAfter = -1;                                       // a mood asked for while an act waits that has none drawn for it: it follows the act
     this.pendingThen = -1; this.follow = -1;                   // an act that goes on at once from the pending one, and from the one playing
     this.seqStart = 0; this.loopSince = 0; this.nextFidget = 0; this.lastFrame = -1; this.fps = 0;
     this.lastTapAct = ''; this.lastFidgetAct = '';
@@ -216,10 +217,17 @@ export class Board {
     if (A.base[b] !== b && A.transOf[a][A.base[b]] >= 0) return A.transOf[a][A.base[b]];
     return -1;
   }
+  variantFor(e, m) {                                           // act e as drawn for mood m (name_<mood>, else its base mood's), or -1
+    const A = this.A, n = A.name[e], u = n.lastIndexOf('_');
+    let e2 = -1;
+    if (u > 0) { e2 = this.eventIndex(n.substring(0, u) + '_' + A.moodName[m]); if (e2 < 0) e2 = this.eventIndex(n.substring(0, u) + '_' + A.moodName[A.base[m]]); }
+    return e2;
+  }
   settle(m) {                                                  // arrived in mood m's loop
     const A = this.A;
     this.curMood = m;
     if (this.follow >= 0) { const f = this.follow; this.follow = -1; if (A.from[f] === m) return this.startSeq(f); }
+    if (this.moodAfter >= 0 && this.pendingEvent < 0) { this.target = this.moodAfter; this.moodAfter = -1; }   // the act it waited for has played
     if (this.target !== m) {
       const h = this.nextHop(m, this.target);
       if (h >= 0) return this.startSeq(h);
@@ -228,9 +236,7 @@ export class Board {
     }
     // an act queued for a mood the board never settled in: the same act drawn for the mood it landed in (name_<mood>)
     if (this.pendingEvent >= 0 && A.from[this.pendingEvent] !== m) {
-      const n = A.name[this.pendingEvent], u = n.lastIndexOf('_');
-      let e2 = -1;
-      if (u > 0) { e2 = this.eventIndex(n.substring(0, u) + '_' + A.moodName[m]); if (e2 < 0) e2 = this.eventIndex(n.substring(0, u) + '_' + A.moodName[A.base[m]]); }
+      const e2 = this.variantFor(this.pendingEvent, m);
       this.pendingEvent = e2;
       if (e2 < 0) this.pendingThen = -1;
     }
@@ -439,14 +445,17 @@ export class Board {
     this.heardFromHost();
     if (cmd === 'h') { const s = toInt(arg); if (s >= 0 && s < 86400) { this.clockBase = s; this.clockAt = this.millis(); } return; }
     if (cmd === 's') {
-      if (arg === 'demo' || arg === 'cycle') { this.demo = true; this.demoNext = 0; return this.reply(); }
+      if (arg === 'demo' || arg === 'cycle') { this.demo = true; this.demoNext = 0; this.moodAfter = -1; return this.reply(); }
       const m = this.moodIndex(arg);
       if (m < 0) { this.say('err unknown mood'); return; }
       // repeating the current mood is a no-op, so the bridge can re-assert it without undoing the board's own escalation
       const cur = this.A.moodName[this.target], selfEscalated = cur === 'waiting' || cur === 'longhaul';
       const same = !this.demo && (m === this.target || (selfEscalated && this.A.base[this.target] === m));
       this.demo = false;
-      if (!same) this.setTarget(m);
+      // an act still waiting to play, with none drawn for this mood, would be lost on the way (the hello when the bridge
+      // comes back during the rain): it plays first, and this mood follows it
+      if (!same && this.pendingEvent >= 0 && this.A.from[this.pendingEvent] !== m && this.variantFor(this.pendingEvent, m) < 0) this.moodAfter = m;
+      else if (!same) { this.moodAfter = -1; this.setTarget(m); }
       return this.reply();
     }
     if (cmd === 'e') {

@@ -278,10 +278,25 @@ describe('the rain at its own moments', () => {
     assert.equal(n.b.state().playing, 'glyph_dissolve');
     n.cmd('h 43200');
     assert.deepEqual(trace(n, 4000), ['glyph_dissolve', 'glyph_form', 'hello', 'idle']);
-    // queued behind the rain, the hello gives way to a mood sent after it, as any act asked for before a mood does
+    // queued behind the rain, the hello is not lost to a mood sent after it: it plays, and the mood follows
     const o = make(sageLike(), { draw: false }); offlineAfter(o);
     o.cmd('h 43200'); o.cmd('s working');
-    assert.deepEqual(trace(o, 4000), ['glyph_dissolve', 'glyph_form', 'idle_to_working', 'working']);
+    assert.deepEqual(trace(o, 6000), ['glyph_dissolve', 'glyph_form', 'hello', 'idle_to_working', 'working']);
+  });
+
+  test('a hello asked for during the form after a boot plays before the mood sent after it', () => {
+    const m = make(sageLike(), { draw: false });
+    assert.equal(m.playing(), 'glyph_form(event)');
+    m.cmd('h 43200'); m.cmd('e hello'); m.cmd('s working');      // the mind's hello, then the bridge's mood
+    assert.deepEqual(trace(m, 6000), ['glyph_form', 'hello', 'idle_to_working', 'working']);
+  });
+
+  test('an act with one drawn for the new mood still switches to it at once, as before', () => {
+    const m = make(); m.cmd('h 43200');
+    m.cmd('s working'); m.cmd('e tap');                         // tap_shock_working, queued behind idle_to_working
+    m.cmd('s done');
+    const seen = trace(m, 3000);
+    assert.ok(seen.includes('tap_shock_done') && !seen.includes('tap_shock_working'), seen.join(' '));
   });
 
   test('asleep it notices neither, and without the acts nothing plays', () => {
