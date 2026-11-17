@@ -177,9 +177,9 @@ def art_acts(path):
     try:
         with open(path, "rb") as f:
             d = f.read()
-        if d[:4] not in (b"SAGE", b"LUMP") or not 3 <= struct.unpack_from("<H", d, 4)[0] <= 7:
+        if d[:4] not in (b"SAGE", b"LUMP") or not 3 <= struct.unpack_from("<H", d, 4)[0] <= 8:
             return None
-        p = 10
+        p = 11 if d[4] >= 8 else 10                    # version 8: a byte of flags
         for _ in range(d[8]):                          # moods: u8 base, u8 length, the name
             p += 2 + d[p + 1]
         if d[4] >= 5:

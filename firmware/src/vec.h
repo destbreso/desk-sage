@@ -1,6 +1,6 @@
 // A small canvas-style renderer: paths, fills, round strokes, dashes, clipping and alpha, drawn
 // with smooth edges into a 240x240 RGB565 picture. It plays the instruction lists that
-// tools/export_frames.py records from design/lump.html (the format is in that file's encode()).
+// tools/export_frames.py records from design/sage.html (the format is in that file's encode()).
 // Plain C++ with no Arduino dependencies, so the same file builds for the board and for the Mac
 // (tools/vec_check.cpp, which the exporter uses to check every frame against the browser's picture).
 // Define VEC_SWAPPED before including it to store pixels byte-swapped, as the display wants them.
@@ -32,10 +32,12 @@ struct Canvas {
   uint8_t* clips[MAX_CLIPS] = {};      // W*H each
   void (*recolour)(uint8_t* rgba) = nullptr;   // called on every colour as it is set (the board swaps in his body colour)
   bool overflow = false;               // the last frame needed more points, saves or clips than there is room for
+  bool anchored = false;               // the last frame marked where the antenna's ball is (instruction 28), at
+  int16_t anchorX = 0, anchorY = 0, anchorR = 0;   // these, in 1/16 px of the screen (not through the transform)
 
   // ---- one frame ----
   void play(const uint8_t* p, uint32_t len) {
-    st = State(); sp = 0; clipTop = 0; overflow = false; beginPath();
+    st = State(); sp = 0; clipTop = 0; overflow = false; anchored = false; beginPath();
     const uint8_t* end = p + len;
     auto s16 = [&]() { int16_t v = int16_t(p[0] | (p[1] << 8)); p += 2; return v; };
     auto u16 = [&]() { uint16_t v = uint16_t(p[0] | (p[1] << 8)); p += 2; return v; };
@@ -71,6 +73,8 @@ struct Canvas {
         case 25: { float x = px(), y = px(), w = px(), h = px(), r = px(); roundRect(x, y, w, h, r); break; }
         case 26: st.dashOff = px(); break;
         case 27: clip(true); break;
+        case 28: if (end - p < 6) { overflow = true; return; }      // a mark, not a drawing: the board draws over it (antenna.h)
+                 anchorX = s16(); anchorY = s16(); anchorR = s16(); anchored = true; break;
         default: overflow = true; return;                 // unknown instruction: stop rather than misread the rest
       }
     }

@@ -92,7 +92,7 @@
   }
   function parse(buffer) {
     const d = new Uint8Array(buffer), dv = new DataView(buffer), frames = dv.getUint16(6, true);
-    let p = 10;
+    let p = dv.getUint16(4, true) >= 8 ? 11 : 10;            // version 8: a byte of flags
     for (let i = d[8]; i > 0; i--) p += 2 + d[p + 1];
     const seqs = {}, wide = dv.getUint16(4, true) >= 5;      // version 5 on: a two-byte sequence count
     let count = wide ? dv.getUint16(p, true) : d[p]; p += wide ? 2 : 1;

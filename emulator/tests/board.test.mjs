@@ -59,7 +59,7 @@ describe('parsing', () => {
     const bad = small(); bad[0] = 0x58;
     assert.equal(new Board().parseArt(bad, bad.length, 0), false);
     for (const magic of ['SAGE', 'LUMP']) { const art = sageLike({ magic }); assert.equal(new Board().parseArt(art, art.length, 0), true, magic); }
-    for (const v of [2, 8]) { const x = small(); x[4] = v; assert.equal(new Board().parseArt(x, x.length, 0), false, `version ${v}`); }
+    for (const v of [2, 9]) { const x = small(); x[4] = v; assert.equal(new Board().parseArt(x, x.length, 0), false, `version ${v}`); }
     const v4 = encode({ version: 4, moods: [['idle', 0]], seqs: [[0, 0, 0, 'idle', [0]]], frames: [solid(0)] });
     assert.equal(new Board().parseArt(v4, v4.length, 0), true);
   });

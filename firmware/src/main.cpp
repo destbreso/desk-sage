@@ -38,8 +38,10 @@
 //
 // On its own: with no word from the bridge for a minute (or since boot) it is "offline": it
 // drops what it was showing, idles and fidgets (asleep at night if a heartbeat ever told it the
-// time), and shows a small unplugged-cable mark in the bottom-right corner. Just powered from a
-// charger, it lives like this. When the bridge speaks again it prints "resync" so it resends.
+// time), and shows it on its antenna: the ball dark, and a faint ring going out every four seconds
+// (antenna.h, where the art marks the ball; art that marks none shows a small unplugged-cable mark in
+// the bottom-right corner instead). Just powered from a charger, it lives like this. When the bridge
+// speaks again it prints "resync" so it resends, and the ball lights again with a bright ring.
 //
 // Wi-Fi (once set up): it joins your network as sage.local and takes the same commands over TCP
 // port 4210, so the bridge can drive it without a USB data cable. A connection must start with
@@ -83,6 +85,7 @@
 #include "vec.h"
 #include "glyphs.h"
 #include "packed.h"
+#include "antenna.h"
 
 constexpr int PIN_SCLK = 40, PIN_MOSI = 41, PIN_DC = 38, PIN_CS = 39, PIN_RST = 42, PIN_BL = 20;
 constexpr bool PRISM_MIRROR = true;  // rotations 4–7 are mirrored for the prism
@@ -145,6 +148,7 @@ struct Anim {
   uint8_t kind[MAX_SEQ], from[MAX_SEQ], to[MAX_SEQ], src[MAX_SEQ]; uint16_t len[MAX_SEQ]; const uint8_t* seq[MAX_SEQ]; String name[MAX_SEQ];
   int16_t loopOf[MAX_MOODS], transOf[MAX_MOODS][MAX_MOODS];
   Src srcs[MAX_SRC];
+  bool anchors = false;                          // its frames mark the antenna's ball (version 8's flags, bit 0)
   bool ok = false;
 } A;
 
@@ -163,10 +167,11 @@ static bool parseArt(const uint8_t* buf, size_t size, int si) {
   bool clip = si > 0;
   if (memcmp(p, "SAGE", 4) != 0 && memcmp(p, "LUMP", 4) != 0) return false;   // LUMP: what the bake wrote before
   p += 4;
-  uint16_t version = rd16(p); p += 2;            // 3: every frame is pixels. 4: a frame may be instructions. 5: up to 65535 sequences. 6: glyph frames and their atlas. 7: compressed frames
-  if (version < 3 || version > 7) return false;
+  uint16_t version = rd16(p); p += 2;            // 3: every frame is pixels. 4: a frame may be instructions. 5: up to 65535 sequences. 6: glyph frames and their atlas. 7: compressed frames. 8: flags
+  if (version < 3 || version > 8) return false;
   uint16_t nFrames = rd16(p); p += 2;
   uint8_t nMoods = *p++, fps = *p++, moodOf[MAX_MOODS];
+  uint8_t flags = version >= 8 ? *p++ : 0;
   if (nMoods > MAX_MOODS) return false;
   for (int m = 0; m < nMoods; m++) {
     if (!room(2) || !room(2 + p[1])) return false;
@@ -175,7 +180,7 @@ static bool parseArt(const uint8_t* buf, size_t size, int si) {
     A.base[m] = base; A.moodName[m] = name; A.loopOf[m] = -1; moodOf[m] = m;
     if (base >= nMoods) return false;
   }
-  if (!clip) { A.nMoods = nMoods; A.fps = fps; A.nFrames = nFrames; A.nSeqs = 0; memset(A.transOf, -1, sizeof(A.transOf)); }
+  if (!clip) { A.nMoods = nMoods; A.fps = fps; A.nFrames = nFrames; A.nSeqs = 0; A.anchors = flags & 1; memset(A.transOf, -1, sizeof(A.transOf)); }
   int wide = version >= 5 ? 2 : 1;               // bytes in the sequence count
   if (!room(wide)) return false;
   int n = wide == 2 ? rd16(p) : *p, first = A.nSeqs; p += wide;
@@ -245,9 +250,11 @@ static void recolour8(uint8_t* c) {
 // [count][rgb565 big-endian]. The sprite buffer wants byte-swapped RGB565, which is big-endian byte
 // order, so each run's two bytes go in as stored (then recoloured). Glyphs keep their colours: the
 // body-colour swap was made for Lump's magenta (docs/ROADMAP.md, Phase 6). A compressed frame is first
-// inflated into the window; one that does not inflate is not drawn, and said once.
+// inflated into the window; one that does not inflate is not drawn, and said once. Afterwards cv.anchored says
+// whether the frame marked its antenna's ball, and where.
 static void drawFrame(uint8_t src, uint16_t idx) {
   const Src& S = A.srcs[src];
+  cv.anchored = false;
   uint32_t o = rd32(S.offsets + 4 * idx), kind = o >> 30;
   const uint8_t* p = S.data + (o & 0x3FFFFFFF);
   const uint8_t* end = S.end;
@@ -452,6 +459,10 @@ static void say(const char* fmt, ...) {
 static uint32_t lastHost = 0, clockAt = 0;
 static int32_t clockBase = -1;                 // seconds since local midnight at clockAt; -1 = unknown
 static bool hostSeen = false, offline = true;  // offline until the bridge says something
+static uint32_t offlineSince = 0, relinkAt = 0;  // when it went offline; when its ball lit again
+static bool relinking = false;
+static bool offlineMark(uint32_t now);
+static bool antennaDark(uint32_t now);
 static int ovWorking = 0, ovWaiting = 0, ovUnseen = 0;
 static bool hostAlive(uint32_t now) { return hostSeen && now - lastHost < HOST_TIMEOUT_MS; }
 static bool nightHour(int h) {                 // works whether or not the window wraps past midnight
@@ -467,13 +478,15 @@ static bool nightNow(uint32_t now) {
 static bool asleep(uint32_t now) { return nightNow(now) || A.moodName[target] == "night"; }
 static void heardFromHost() {
   bool was = offline, back = offline && hostSeen;   // it had the bridge before, and lost it
-  lastHost = millis(); hostSeen = true; offline = false;
+  lastHost = millis();
+  if (antennaDark(lastHost)) { relinking = true; relinkAt = lastHost; }   // its ball lights again, with a ring
+  hostSeen = true; offline = false;
   if (was) say("resync");           // the bridge resends mood, colour and corner extras
   if (back && A.ok && !demo && !asleep(lastHost)) playEvent("hello");
 }
 static void runOffline(uint32_t now) {
   if (!offline && !hostAlive(now)) {           // lost the bridge: forget what it last told us, and go into the rain
-    offline = true;
+    offline = true; offlineSince = now; relinking = false;
     ovWorking = ovWaiting = ovUnseen = 0;
     goalR = 255; goalG = 122; goalB = 69;      // back to Tangerine (a usage or meeting colour would be stale)
     if (!demo && !asleep(now)) playEvent("glyph_dissolve", eventIndex("glyph_form"));
@@ -483,7 +496,32 @@ static void runOffline(uint32_t now) {
   if (want >= 0 && target != want && pendingEvent < 0 && A.kind[curSeq] == LOOP) setTarget(want);
 }
 static bool offlineMark(uint32_t now) { return offline && !demo && now > OFFLINE_MARK_AFTER_MS; }
-// a little unplugged cable, gently reaching for its socket
+// shown on its antenna when the art marks it, else in a corner
+static bool antennaDark(uint32_t now) { return A.anchors && offlineMark(now); }
+static bool cornerMark(uint32_t now) { return !A.anchors && offlineMark(now); }
+// What its antenna shows, as a number that changes whenever the drawing does: -1 nothing (the art's own ball), 0 the
+// ball dark, 1 + k the dark ball and the faint ring at step k, -2 - k the relink's ring at step k.
+static int antennaStep(uint32_t now) {
+  if (antennaDark(now)) {
+    uint32_t k = (now - offlineSince) % (antenna::EVERY * 1000 / antenna::FPS) * antenna::FPS / 1000;   // never overflows
+    return k < antenna::RING ? 1 + int(k) : 0;
+  }
+  if (relinking && !offline) {
+    uint32_t ms = now - relinkAt;
+    if (ms < 1000 && ms * antenna::FPS / 1000 < antenna::RELINK) return -2 - int(ms * antenna::FPS / 1000);
+    relinking = false;
+  }
+  return -1;
+}
+// over the frame just drawn, at the ball it marks (a frame with none shows nothing extra)
+static void drawAntenna(int step) {
+  static uint8_t buf[antenna::MAX];
+  if (step == -1 || !cv.anchored) return;
+  int n = step >= 0 ? antenna::offline(buf, cv.anchorX, cv.anchorY, cv.anchorR, step - 1)
+                    : antenna::relink(buf, cv.anchorX, cv.anchorY, cv.anchorR, -2 - step);
+  cv.play(buf, n);
+}
+// a little unplugged cable, gently reaching for its socket (art that does not mark its antenna)
 static void drawOfflineMark(uint32_t now) {
   float t = now / 1000.f, k = 0.45f + 0.3f * sinf(t * 2.1f);
   uint16_t c = lgfx::color565(255 * k, 241 * k, 220 * k);
@@ -501,13 +539,13 @@ static void drawOfflineMark(uint32_t now) {
 //   top-right    a twinkling sparkle: something finished that you haven't looked at yet
 static uint16_t rgb(uint8_t r, uint8_t g, uint8_t b) { return lgfx::color565(r, g, b); }
 static bool overlayVisible() {
-  if (offlineMark(millis())) return true;
+  if (cornerMark(millis())) return true;
   const String& m = A.moodName[target];
   bool workingMood = m == "working" || m == "longhaul", alertMood = m == "alert" || m == "waiting";
   return (ovWorking > 0 && !workingMood) || ovWaiting >= 2 || (ovWaiting >= 1 && !alertMood) || (ovUnseen > 0 && m != "done");
 }
 static void drawOverlay(uint32_t now) {
-  if (offlineMark(now)) drawOfflineMark(now);
+  if (cornerMark(now)) drawOfflineMark(now);
   const String& m = A.moodName[target];
   bool workingMood = m == "working" || m == "longhaul", alertMood = m == "alert" || m == "waiting";
   float t = now / 1000.f;
@@ -892,17 +930,20 @@ void loop() {
     lastFrame = -1;
   }
   static uint32_t lastOverlayTick = 0;
+  static int lastAntenna = -1;
   uint32_t overlayTick = now / 100;              // corner extras animate at ~10 fps
   bool ov = overlayVisible();
+  int ant = antennaStep(now);                    // its antenna at 24 steps a second while a ring goes out
   int frame = (A.src[curSeq] << 16) | idx;
-  if (frame != lastFrame || (ov && overlayTick != lastOverlayTick)) {
+  if (frame != lastFrame || ant != lastAntenna || (ov && overlayTick != lastOverlayTick)) {
     lastOverlayTick = overlayTick;
     uint32_t began = micros();
     drawFrame(A.src[curSeq], idx);
+    drawAntenna(ant);
     slowestDraw = max(slowestDraw, (micros() - began) / 1000.f);
     if (ov) drawOverlay(now);
     fb.pushSprite(0, 0);
-    lastFrame = frame;
+    lastFrame = frame; lastAntenna = ant;
     static uint32_t t0 = now; static int n = 0;
     if (++n, now - t0 >= 2000) { fps = n * 1000.f / (now - t0); n = 0; t0 = now; }
   }

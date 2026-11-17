@@ -147,7 +147,7 @@ function readouts() {
   const clock = s.clock === null ? 'unknown' : `${String(Math.floor(s.clock / 3600)).padStart(2, '0')}:${String(Math.floor(s.clock / 60) % 60).padStart(2, '0')}`;
   const hex = '#' + s.colour.map(v => v.toString(16).padStart(2, '0')).join('').toUpperCase();
   const rows = [
-    ['mode', s.mode + (s.offlineMark ? ' (unplugged mark)' : '')], ['target', s.target], ['playing', `${s.playing} (${s.kind})`],
+    ['mode', s.mode + (s.offlineMark ? (s.anchors ? ' (shown on its antenna)' : ' (unplugged mark)') : '')], ['antenna', s.antenna || 'its own ball'], ['target', s.target], ['playing', `${s.playing} (${s.kind})`],
     ['queued', s.pending || '-'], ['fps', s.fps.toFixed(1)], ['draw_ms', `${slowest.toFixed(2)} on this machine (the board's own is only measured on the board)`],
     ['backlight', `${s.backlight} / 255`], ['colour', `<span class="swatch" style="background:${hex}"></span>${hex}`],
     ['overlay', `working ${s.overlay[0]}, waiting ${s.overlay[1]}, unseen ${s.overlay[2]}`],

@@ -88,7 +88,7 @@ export class Window {
 // at(f) where its bytes start. Nothing is checked: that is the parser's.
 export function frameTable(buf) {
   const version = rd16(buf, 4), nFrames = rd16(buf, 6), wide = version >= 5 ? 2 : 1;
-  let p = 10;
+  let p = version >= 8 ? 11 : 10;                            // version 8: a byte of flags
   for (let m = buf[8]; m > 0; m--) p += 2 + buf[p + 1];
   let n = wide === 2 ? rd16(buf, p) : buf[p];
   for (p += wide; n > 0; n--) { p += 4 + buf[p + 3]; p += 2 + 2 * rd16(buf, p); }

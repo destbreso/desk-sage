@@ -3,17 +3,19 @@
 // frames as {rle: [[count, rgb565], ...]}, {ops: [byte, ...]} or, from version 6, {glyphs: [bg, [[x, y, atlas index, rgb565], ...]]};
 // a version 6 file carries its atlas as [{left, top, w, h, cov: [0..15 a pixel, row by row]}]. From version 7 a frame
 // with pack: true is stored compressed, and with base: i (another packed frame's index) after that frame's bytes.
+// From version 8 the header carries `flags` (bit 0: its instruction frames mark the antenna's ball, instruction 28).
 
 import { deflateRawSync } from 'node:zlib';
 import { adler32 } from '../packed.mjs';
 
-export function encode({ version = 5, fps = 24, moods, seqs, frames, atlas = [], magic = 'SAGE' }) {
+export function encode({ version = 5, fps = 24, moods, seqs, frames, atlas = [], magic = 'SAGE', flags = 0 }) {
   const out = [];
   const u8 = v => out.push(v & 255), u16 = v => out.push(v & 255, (v >> 8) & 255);
   const u32 = v => out.push(v & 255, (v >>> 8) & 255, (v >>> 16) & 255, (v >>> 24) & 255);
   const str = s => { u8(s.length); for (const c of s) u8(c.charCodeAt(0)); };
   for (const c of magic) u8(c.charCodeAt(0));
   u16(version); u16(frames.length); u8(moods.length); u8(fps);
+  if (version >= 8) u8(flags);
   for (const [name, base] of moods) { u8(base); str(name); }
   if (version >= 5) u16(seqs.length); else u8(seqs.length);
   for (const [kind, from, to, name, ticks] of seqs) { u8(kind); u8(from); u8(to); str(name); u16(ticks.length); ticks.forEach(u16); }

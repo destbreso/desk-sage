@@ -1,5 +1,5 @@
 // The board, as firmware/src/main.cpp runs it: the .bin parser, the player and its state graph, the
-// things it does on its own, the corner marks, the backlight, taps, the serial commands and clips.
+// things it does on its own, its antenna and the corner marks, the backlight, taps, the serial commands and clips.
 // Each method names the function it mirrors in main.cpp; keep them in step. What the hardware does
 // (the clock, the display, the backlight pin, the accelerometer, the serial line) comes in through
 // the hooks the constructor takes, so a page and a test drive the same code. Inflating a compressed frame is one of
@@ -9,6 +9,7 @@
 import { Canvas, W, H } from './vec.mjs';
 import * as glyphs from './glyphs.mjs';
 import * as packed from './packed.mjs';
+import * as antenna from './antenna.mjs';
 import { Sprite, color565 } from './lgfx.mjs';
 
 export const LOOP = 0, TRANS = 1, EVENT = 2;
@@ -36,6 +37,7 @@ function newAnim() {
     len: new Array(MAX_SEQ).fill(0), seqBuf: new Array(MAX_SEQ).fill(null), seq: new Array(MAX_SEQ).fill(0), name: new Array(MAX_SEQ).fill(''),
     loopOf: new Array(MAX_MOODS).fill(-1), transOf: Array.from({ length: MAX_MOODS }, () => new Array(MAX_MOODS).fill(-1)),
     srcs: Array.from({ length: MAX_SRC }, newSrc),
+    anchors: false,                                            // its frames mark the antenna's ball (version 8's flags, bit 0)
     ok: false,
   };
 }
@@ -68,9 +70,11 @@ export class Board {
     this.tapPending = false; this.tapThreshold = 0.35; this.peakJolt = 0; this.peakAt = 0; this.tapCount = 0; this.lastTap = 0;
     // the bridge
     this.lastHost = 0; this.clockAt = 0; this.clockBase = -1; this.hostSeen = false; this.offline = true;
+    this.offlineSince = 0; this.relinkAt = 0; this.relinking = false;      // when it went offline; when its ball lit again
     this.ovWorking = 0; this.ovWaiting = 0; this.ovUnseen = 0;
     // the loop's statics
-    this.slowestDraw = 0; this.drawMs = 0; this.lastFade = 0; this.lastOverlayTick = 0; this.fpsT0 = null; this.fpsN = 0;
+    this.slowestDraw = 0; this.drawMs = 0; this.lastFade = 0; this.lastOverlayTick = 0; this.lastAntenna = -1; this.fpsT0 = null; this.fpsN = 0;
+    this.antennaBuf = new Uint8Array(antenna.MAX); this.drawnOnAntenna = null;
     this.rx = ''; this.lineBuf = '';
     this.noArt = false;
   }
@@ -104,10 +108,11 @@ export class Board {
     const magic = decoder.decode(buf.subarray(0, 4));
     if (magic !== 'SAGE' && magic !== 'LUMP') return false;     // LUMP: what the bake wrote before
     p += 4;
-    const version = rd16(buf, p); p += 2;            // 3: every frame is pixels. 4: a frame may be instructions. 5: up to 65535 sequences. 6: glyph frames and their atlas. 7: compressed frames
-    if (version < 3 || version > 7) return false;
+    const version = rd16(buf, p); p += 2;            // 3: every frame is pixels. 4: a frame may be instructions. 5: up to 65535 sequences. 6: glyph frames and their atlas. 7: compressed frames. 8: flags
+    if (version < 3 || version > 8) return false;
     const nFrames = rd16(buf, p); p += 2;
     const nMoods = buf[p++], fps = buf[p++], moodOf = [];
+    const flags = version >= 8 ? buf[p++] : 0;
     if (nMoods > MAX_MOODS) return false;
     for (let m = 0; m < nMoods; m++) {
       if (!room(2) || !room(2 + buf[p + 1])) return false;
@@ -116,7 +121,7 @@ export class Board {
       A.base[m] = base; A.moodName[m] = name; A.loopOf[m] = -1; moodOf[m] = m;
       if (base >= nMoods) return false;
     }
-    if (!clip) { A.nMoods = nMoods; A.fps = fps; A.nFrames = nFrames; A.nSeqs = 0; for (const row of A.transOf) row.fill(-1); }
+    if (!clip) { A.nMoods = nMoods; A.fps = fps; A.nFrames = nFrames; A.nSeqs = 0; A.anchors = (flags & 1) === 1; for (const row of A.transOf) row.fill(-1); }
     const wide = version >= 5 ? 2 : 1;               // bytes in the sequence count
     if (!room(wide)) return false;
     const n = wide === 2 ? rd16(buf, p) : buf[p], first = A.nSeqs;
@@ -172,9 +177,11 @@ export class Board {
   }
 
   // ---------- drawFrame(): instructions through vec, glyphs through glyphs, or RLE runs of [count][rgb565 big-endian];
-  // a compressed frame inflated into the window first, and one that does not inflate not drawn, and said once ----------
+  // a compressed frame inflated into the window first, and one that does not inflate not drawn, and said once;
+  // afterwards cv.anchored says whether the frame marked its antenna's ball, and where ----------
   drawFrame(src, idx) {
     const S = this.A.srcs[src];
+    this.cv.anchored = false;
     let buf = S.buf;
     const o = rd32(buf, S.offsets + 4 * idx);
     let kind = o >>> 30, p = S.data + (o & 0x3FFFFFFF), end = S.end;
@@ -332,13 +339,15 @@ export class Board {
   asleep(now) { return this.nightNow(now) || this.A.moodName[this.target] === 'night'; }   // it notices neither the bridge going nor coming back
   heardFromHost() {
     const was = this.offline, back = this.offline && this.hostSeen;     // it had the bridge before, and lost it
-    this.lastHost = this.millis(); this.hostSeen = true; this.offline = false;
+    this.lastHost = this.millis();
+    if (this.antennaDark(this.lastHost)) { this.relinking = true; this.relinkAt = this.lastHost; }   // its ball lights again, with a ring
+    this.hostSeen = true; this.offline = false;
     if (was) this.say('resync');                               // the bridge resends mood, colour and corner extras
     if (back && this.A.ok && !this.demo && !this.asleep(this.lastHost)) this.playEvent('hello');
   }
   runOffline(now) {
     if (!this.offline && !this.hostAlive(now)) {                 // lost the bridge: forget what it last told us, and go into the rain
-      this.offline = true;
+      this.offline = true; this.offlineSince = now; this.relinking = false;
       this.ovWorking = this.ovWaiting = this.ovUnseen = 0;
       this.goalR = 255; this.goalG = 122; this.goalB = 69;
       if (!this.demo && !this.asleep(now)) this.playEvent('glyph_dissolve', this.eventIndex('glyph_form'));
@@ -348,7 +357,32 @@ export class Board {
     if (want >= 0 && this.target !== want && this.pendingEvent < 0 && this.A.kind[this.curSeq] === LOOP) this.setTarget(want);
   }
   offlineMark(now) { return this.offline && !this.demo && now > OFFLINE_MARK_AFTER_MS; }
-  drawOfflineMark(now) {                                       // a little unplugged cable, reaching for its socket
+  // shown on its antenna when the art marks it, else in a corner
+  antennaDark(now) { return this.A.anchors && this.offlineMark(now); }
+  cornerMark(now) { return !this.A.anchors && this.offlineMark(now); }
+  // antennaStep(): a number that changes whenever the antenna's drawing does: -1 nothing (the art's own ball), 0 the
+  // ball dark, 1 + k the dark ball and the faint ring at step k, -2 - k the relink's ring at step k
+  antennaStep(now) {
+    if (this.antennaDark(now)) {
+      const k = Math.floor(((now - this.offlineSince) >>> 0) % Math.floor(antenna.EVERY * 1000 / antenna.FPS) * antenna.FPS / 1000);
+      return k < antenna.RING ? 1 + k : 0;
+    }
+    if (this.relinking && !this.offline) {
+      const ms = (now - this.relinkAt) >>> 0;
+      if (ms < 1000 && Math.floor(ms * antenna.FPS / 1000) < antenna.RELINK) return -2 - Math.floor(ms * antenna.FPS / 1000);
+      this.relinking = false;
+    }
+    return -1;
+  }
+  drawAntenna(step) {                                          // over the frame just drawn, at the ball it marks
+    const cv = this.cv, buf = this.antennaBuf;
+    this.drawnOnAntenna = step === -1 || !cv.anchored ? null : step === 0 ? 'dark' : step > 0 ? 'ring' : 'relink';   // for the readouts and tests
+    if (step === -1 || !cv.anchored) return;
+    const n = step >= 0 ? antenna.offline(buf, cv.anchorX, cv.anchorY, cv.anchorR, step - 1)
+                        : antenna.relink(buf, cv.anchorX, cv.anchorY, cv.anchorR, -2 - step);
+    cv.play(buf, 0, n);
+  }
+  drawOfflineMark(now) {                                       // a little unplugged cable, reaching for its socket (art that does not mark its antenna)
     const g = this.gfx, t = now / 1000, k = 0.45 + 0.3 * Math.sin(t * 2.1);
     const c = color565(Math.trunc(255 * k), Math.trunc(241 * k), Math.trunc(220 * k));
     const px = 200 + Math.trunc(2.5 + 2.5 * Math.sin(t * 1.3));
@@ -360,7 +394,7 @@ export class Board {
 
   // ---------- corner extras: overlayVisible() and drawOverlay() ----------
   overlayVisible(now = this.millis()) {
-    if (this.offlineMark(now)) return true;
+    if (this.cornerMark(now)) return true;
     const m = this.A.moodName[this.target];
     const workingMood = m === 'working' || m === 'longhaul', alertMood = m === 'alert' || m === 'waiting';
     return (this.ovWorking > 0 && !workingMood) || this.ovWaiting >= 2 || (this.ovWaiting >= 1 && !alertMood) || (this.ovUnseen > 0 && m !== 'done');
@@ -368,7 +402,7 @@ export class Board {
   drawOverlay(now) {
     const g = this.gfx, m = this.A.moodName[this.target], t = now / 1000;
     const rgb = (r, gg, b) => color565(Math.trunc(r), Math.trunc(gg), Math.trunc(b));
-    if (this.offlineMark(now)) this.drawOfflineMark(now);
+    if (this.cornerMark(now)) this.drawOfflineMark(now);
     const workingMood = m === 'working' || m === 'longhaul', alertMood = m === 'alert' || m === 'waiting';
     if (this.ovWorking > 0 && !workingMood) {                  // bottom-left: three bouncing dots
       for (let i = 0; i < 3; i++) {
@@ -542,16 +576,18 @@ export class Board {
       this.lastFrame = -1;
     }
     const overlayTick = Math.floor(now / 100), ov = this.overlayVisible(now);    // corner extras animate at ~10 fps
+    const ant = this.antennaStep(now);                         // its antenna at 24 steps a second while a ring goes out
     const frame = (A.src[cur] << 16) | idx;
-    if (frame !== this.lastFrame || (ov && overlayTick !== this.lastOverlayTick)) {
+    if (frame !== this.lastFrame || ant !== this.lastAntenna || (ov && overlayTick !== this.lastOverlayTick)) {
       this.lastOverlayTick = overlayTick;
       const began = this.micros();
       this.drawFrame(A.src[cur], idx);
+      this.drawAntenna(ant);
       this.drawMs = (this.micros() - began) / 1000;            // this machine's time, not the board's
       this.slowestDraw = Math.max(this.slowestDraw, this.drawMs);
       if (ov) this.drawOverlay(now);
       this.present(this.fb);
-      this.lastFrame = frame;
+      this.lastFrame = frame; this.lastAntenna = ant;
       if (this.fpsT0 === null) this.fpsT0 = now;
       this.fpsN++;
       if (now - this.fpsT0 >= 2000) { this.fps = this.fpsN * 1000 / (now - this.fpsT0); this.fpsN = 0; this.fpsT0 = now; }
@@ -568,7 +604,7 @@ export class Board {
       kind: k === LOOP ? 'loop' : k === TRANS ? 'transition' : 'event', pending: this.pendingEvent >= 0 ? A.name[this.pendingEvent] : null,
       fps: this.fps, drawMs: this.drawMs, backlight: Math.trunc(this.blLevel),
       colour: [this.tintR, this.tintG, this.tintB].map(v => Math.round(v)), overlay: [this.ovWorking, this.ovWaiting, this.ovUnseen],
-      offline: this.offline, offlineMark: this.offlineMark(now), taps: this.tapCount,
+      offline: this.offline, offlineMark: this.offlineMark(now), anchors: this.A.anchors, antenna: this.drawnOnAntenna, taps: this.tapCount,
       clock: this.clockBase < 0 ? null : (this.clockBase + Math.floor((now - this.clockAt) / 1000)) % 86400,
       frames: A.nFrames, seqs: A.nSeqs, clips: this.clips(), problems: this.problems.slice(),
     };

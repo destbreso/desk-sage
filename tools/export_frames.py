@@ -34,8 +34,11 @@ firmware/src/glyphs.h) when that reproduces it; and as pixels otherwise. Then ea
 smaller, most of them right after a keyframe whose bytes they reach back into; tools/pack_check.cpp inflates every
 compressed frame back with that same code, and one that does not come back byte for byte is stored as it is.
 
-sage.bin layout (little-endian), version 7 (the board also reads 3 to 6: 6 has no compressed frames, 3 to 5 no atlas):
-  "SAGE" u16 version=7  u16 nFrames  u8 nMoods  u8 fps   (the board also reads "LUMP", what the bake wrote before)
+sage.bin layout (little-endian), version 8 (the board also reads 3 to 7: 7 has no flags, 6 no compressed frames, 3 to 5
+no atlas):
+  "SAGE" u16 version=8  u16 nFrames  u8 nMoods  u8 fps   (the board also reads "LUMP", what the bake wrote before)
+  u8 flags (version 8): bit 0, its instruction frames mark where the antenna's ball is (instruction 28, see encode());
+                 the board then shows on the antenna that the bridge is gone, else with a mark in a corner
   per mood:      u8 base mood index, u8 nameLen, name
   u16 nSeqs (at most 750 in sage.bin: the board keeps room for that many; a u8 before version 5)
   per sequence:  u8 kind (0 loop, 1 transition, 2 event), u8 from, u8 to,
@@ -111,7 +114,8 @@ EXPORT_JS = r"""
   let ops = [];
   const texts = new Map();
   const rec = new Proxy(c, {
-    get(t, p) { const v = t[p]; if (typeof v !== 'function') return v;
+    get(t, p) { if (p === 'anchor') return (...a) => { ops.push(['anchor', ...a]); };    // a place the board draws over, not a canvas call
+      const v = t[p]; if (typeof v !== 'function') return v;
       return (...a) => {
         if (p === 'fillText') { const k = JSON.stringify([t.font, t.textAlign, t.textBaseline]); if (!texts.has(k)) texts.set(k, new Set()); texts.get(k).add(String(a[0])); }
         ops.push([p, ...a.map(x => (typeof x === 'number' || typeof x === 'string' || typeof x === 'boolean' || Array.isArray(x)) ? x : null)]); return v.apply(t, a); }; },
@@ -199,6 +203,8 @@ OP = {"beginPath": 1, "closePath": 2, "moveTo": 3, "lineTo": 4, "quadraticCurveT
       "translate": 16, "rotate": 17, "scale": 18, "setTransform": 19, "=fillStyle": 20, "=strokeStyle": 21,
       "=lineWidth": 22, "=globalAlpha": 23, "setLineDash": 24, "roundRect": 25, "=lineDashOffset": 26}
 CLIP_OUT = 27     # keep what is outside the path. The canvas has no such call: see hole()
+ANCHOR = 28       # where the antenna's ball is: x, y and its radius in screen pixels, not through the transform. It draws
+                  # nothing; the board draws over it when the bridge is gone (firmware/src/antenna.h)
 # every stroke is drawn with round ends and corners, which is all his drawings use bar a few pointed corners
 SAME = {"=lineCap": ("round",), "=lineJoin": ("round", "miter"), "=globalCompositeOperation": ("source-over",)}
 TEXT = ("=font", "=textAlign", "=textBaseline")   # text state: no instruction depends on it
@@ -256,6 +262,8 @@ def encode(calls):
                 if a[0] not in SAME[n]: return None
                 continue
             if n in TEXT: continue
+            if n == "anchor":
+                out.append(ANCHOR); out += q(a[0]) + q(a[1]) + q(a[2]); continue
             if n not in OP or (n in ("fill", "clip") and a): return None
             out.append(OP[n])
             if n in ("moveTo", "lineTo", "translate"): out += q(a[0]) + q(a[1])
@@ -555,7 +563,9 @@ def build():
         worst = (max(worst[0], mean), max(worst[1], far))
         why["instructions"] += 1; blobs.append((2, struct.pack("<H", len(v)) + v))
     stored, packing = pack(blobs)
-    out = bytearray(b"SAGE") + struct.pack("<HHBB", 7, len(stored), len(moods), 24)
+    marks = [any(c[0] == "anchor" for c in calls[i]) for i in range(len(blobs))]
+    anchored = sum(1 for i, (k, _) in enumerate(blobs) if k == 2 and marks[i])
+    out = bytearray(b"SAGE") + struct.pack("<HHBBB", 8, len(stored), len(moods), 24, 1 if anchored else 0)
     for m in meta["moments"]:
         out += bytes([m["base"]]) + pstr(m["name"])
     out += struct.pack("<H", len(meta["seqs"])) + body + atlas
@@ -578,7 +588,8 @@ def build():
             "frames_rendered": len(where), "unique_frames": len(blobs), "bytes": len(out), "moods": len(moods),
             "sequences": len(meta["seqs"]), "kept_as": why,
             "named_drawings": {"total": len(shows), "without_pixel_frames": len(shows) - len(as_pixels), "with_pixel_frames": as_pixels},
-            "instruction_bytes": sum(len(b) for k, b in blobs if k == 2),
+            "instruction_bytes": sum(len(b) for k, b in blobs if k == 2), "anchored_frames": anchored,
+            "anchors_lost": sum(1 for i, (k, _) in enumerate(blobs) if k != 2 and marks[i]),   # marked, but stored as pixels
             "glyph_bytes": sum(gsizes), "atlas_bytes": len(atlas), "atlas_glyphs": len(keys),
             "pixel_bytes": sum(len(b) for k, b in blobs if not k), "compressed": packing,
             "glyph_frame_bytes": {"smallest": gsizes[0], "median": gsizes[len(gsizes) // 2], "largest": gsizes[-1]} if gsizes else None,
