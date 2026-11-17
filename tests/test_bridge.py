@@ -784,7 +784,8 @@ class MindPath(BridgeTest):
 
     def test_each_kind_of_command(self):
         for cmd, ok, kind in (("cargo build --release", True, "build"), ("npm run build", False, "build"), ("git push", True, "push"),
-                              ("yarn deploy", True, "deploy"), ("ruff check .", True, "lint"), ("git revert HEAD", True, "rollback")):
+                              ("yarn deploy", True, "deploy"), ("ruff check .", True, "lint"), ("git revert HEAD", True, "rollback"),
+                              ("git commit -m 'make test pass, deploy, npm run build'", True, "commit")):
             self.b.mind.told.clear()
             self.hook("PostToolUse" if ok else "PostToolUseFailure", "a", tool_name="Bash", tool_input={"command": cmd})
             self.assertEqual(self.b.mind.told[0], (kind, {"ok": ok, "mood": self.b.mind.told[0][1]["mood"]}), cmd)
@@ -794,6 +795,8 @@ class MindPath(BridgeTest):
         self.b.mind.told.clear()
         self.hook("PostToolUse", "a", tool_name="Bash", tool_input={"command": "ls -la"})
         self.assertEqual(self.b.mind.told, [])                   # nothing Sage reacts to
+        self.hook("PostToolUseFailure", "a", tool_name="Bash", tool_input={"command": "git commit -m x"})
+        self.assertNotIn("commit", self.b.mind.signals())        # a commit that failed is no commit
 
     def test_a_quiet_stop_is_a_celebration_played_after_the_mood(self):
         self.hook("UserPromptSubmit", "a")

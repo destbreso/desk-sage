@@ -13,7 +13,7 @@ on (then back to alert/working), 8 s if not. Corner extras on the display ("o" c
 how many sessions are working / waiting on you / finished but not looked at yet.
 
 Sage's mind (class Mind; mind/ in the repository) chooses the acts: a small Node process beside the bridge, told only
-the kind of thing that happened (tests failed, a build, a push, a Stop, a compaction, a hello, a tap, idling,
+the kind of thing that happened (tests failed, a build, a commit, a push, a Stop, a compaction, a hello, a tap, idling,
 waiting for you, its battery) and never a command or a prompt. It answers from its table of reactions and the
 website's own patience, and the bridge plays its choice with "e <act>" (acts are in the art: nothing goes over Wi-Fi).
 The moods stay the bridge's. Without it (no Node, "mind": false in config.json, or it stops or is slow) the bridge
@@ -121,6 +121,8 @@ STATE_FILE = os.path.join(HOME, "state.json")     # sessions etc. survive a brid
 CLIPS_DIR = os.path.join(HOME, "clips")           # extra animations sent to the board over Wi-Fi when asked for (<name>.clip)
 IDLE_EVERY = (50, 70)                   # while idle, Sage does one thing about this often (the mind's idle signal)
 COMMANDS = [                            # a Bash command Claude ran: (pattern, what it is if it worked, if it failed)
+    # first: a commit's message may name anything (a test, a build, a deploy)
+    (r"\bgit commit\b", "commit", None),
     (r"\b(pytest|unittest|jest|vitest|mocha|rspec|phpunit|go test|cargo test|swift test|ctest|(npm|pnpm|yarn|bun)( run)? test|make (test|check))\b", "tests", "tests"),
     (r"\bgit push\b", "push", None),
     (r"\bgit (merge|rebase|pull|cherry-pick)\b", None, "conflict"),
@@ -133,7 +135,7 @@ COMMANDS = [                            # a Bash command Claude ran: (pattern, w
 # between the two is mind/README.md: its protocol, and the signals the bridge sends (these, and no others).
 MIND_SCRIPT = os.path.join(ROOT, "mind", "sage-mind.mjs")
 MIND_PROTOCOL = 1
-MIND_SIGNALS = ("tests", "build", "push", "deploy", "conflict", "rollback", "lint", "big_diff", "done", "compact", "hello",
+MIND_SIGNALS = ("tests", "build", "commit", "push", "deploy", "conflict", "rollback", "lint", "big_diff", "done", "compact", "hello",
                 "oops", "waiting", "idle", "usage", "tap")
 MIND_ANSWER = 0.3                       # seconds it has to answer before the bridge goes on without it
 MIND_RETRY = (2, 300)                   # once it stops: the first wait before starting it again, and the longest
@@ -156,7 +158,7 @@ if sys.stderr.isatty():          # under launchd stderr is bridge.out, which onl
 
 
 def command_kind(cmd, worked, payload):
-    """What a Bash command Claude just ran was (tests, a push, a build...), if it is one Sage reacts to. Only
+    """What a Bash command Claude just ran was (tests, a commit, a push, a build...), if it is one Sage reacts to. Only
     this goes on to Sage's mind, never the command."""
     if re.search(r"\b(pip3?|brew|npm|pnpm|yarn|bun|cargo|apt(-get)?) (install|add|i)\b", cmd):
         return None
