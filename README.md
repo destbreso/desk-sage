@@ -51,6 +51,7 @@ The one on the right is the emulator in its Realistic mode. Sage plays in the pr
 - [x] What to buy and what it costs, and the hardware in 3D, taken apart
 - [x] Its antenna going dark when it can't hear my Mac
 - [x] The real firmware running in a simulated ESP32-S3, so it's tested before the board arrives
+- [x] The emulator showing the whole device in 3D, with Sage alive in its prism, and a switch to cut the bridge and bring it back
 - [ ] Its own voice, played on the Mac
 - [ ] More of my day as its senses: subagents, renders, permissions waiting on me, the site going live, me stepping away
 - [ ] Holograms that show the real numbers, like the time, my tests and its battery
