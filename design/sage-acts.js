@@ -134,7 +134,7 @@
   act("tap_hello", 40, (t) => ({ mood: "happy", ...hop(t, 6, 12, 6), roll: t < 20 ? 0.06 : -0.04, antenna: 1 }));
   act("tap_dizzy", 72, (t) => ({ eyes: "dizzy", roll: q(Math.sin(t / 4) * 0.14 * (1 - seg(t, 48, 72)), 0.01), headYaw: q(Math.sin(t / 6) * 0.2 * (1 - seg(t, 48, 72)), 0.02), antenna: t % 6 < 3 ? 1 : 0.3 }));
   act("done_glider", 96, (t) => ({ eyes: "glider", rise: q((t % 48) / 48, 1 / 24), antenna: 1 }));
-  // it loves what it sees: its eyes the room's red hearts, beating, and hearts rising from its antenna
+  // it loves what it sees: its eyes the website's red hearts, beating, and hearts rising from its antenna
   act("done_hearts", 72, (t) => ({ eyes: "hearts", hearts: q((t % 48) / 48, 1 / 24), antenna: 1 }));
   // a turn on the spot, all the way round: its head leading, its body following, past the front and back to it
   act("fidget_turn", 108, (t) => { const u = seg(t, 6, 90), body = 2 * Math.PI * back(u) - 2 * Math.PI; return { yaw: q(((body % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI), 0.02), headYaw: q(0.45 * Math.sin(Math.PI * u), 0.02), mood: t > 92 ? "happy" : "calm", wheel: q(u * 6, 0.1), antenna: t > 92 ? 1 : 0.7 }; });
@@ -390,7 +390,7 @@
   holoAct("holo_self", 176, "desk", (t) => ({ roll: q(t >= 50 && t < 120 ? 0.1 * ease(seg(t, 50, 62)) * (1 - ease(seg(t, 108, 120))) : 0, 0.01), mood: t >= 120 ? "happy" : "calm", antenna: 0.9 }),
     (t) => ({ kind: "self", turn: q(Math.max(0, t - 20) / 22, 0.01) }));
   /**
-   * A hologram that takes the whole screen: it bows its lens to you, the lens flares until its light fills the room,
+   * A hologram that takes the whole screen: it bows its lens to you, the lens flares until its light fills the screen,
    * the picture opens over all of the screen and stays until it is done, closes to a line and a point, and Sage is back.
    */
   function screenAct(name, ticks, show, poseAt = () => ({})) {

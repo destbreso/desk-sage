@@ -1,5 +1,5 @@
 // What Sage projects, from the lens on the top edge of its head: a hologram made only of light, as its mind shows on
-// the website (green, see-through, a band of light running down it), switched on and off as the room's screens are (a
+// the website (green, see-through, a band of light running down it), switched on and off as the website's screens are (a
 // point, a line, then the picture). It has no panel behind it: its strokes glow in layers, it is cut into scan lines,
 // it flickers and now and then a slice of it jumps, and on the prism the black round it is glass, so it hangs in the
 // air. It stands on a ring of light on the desk, floats beside Sage, takes the whole screen, or lies on the desk as a

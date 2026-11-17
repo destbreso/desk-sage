@@ -1,6 +1,6 @@
 // What comes into Sage's world for what the author is doing, all made for it (its materials, its green, the website's
-// own marks, the objects of the room), never a stock picture. A glitch that scuttles in when tests fail, the website's
-// prompt taking off for a deploy, Sage's own modules stacking up for a build, the room's phone buzzing with a message;
+// own marks, the website's objects), never a stock picture. A glitch that scuttles in when tests fail, the website's
+// prompt taking off for a deploy, Sage's own modules stacking up for a build, a phone buzzing with a message;
 // and its desk as a board of the Game of Life, one of its themes: a test run as a grid of cells with the failures
 // amber, a deploy as a glider (the website's mark) set off across the desk, a build as a pattern computed by Life's own
 // rule until it settles. Each thing is plain data in a pose ({ kind, x, z, ... }), so a drawing stays a pose; add()
@@ -112,7 +112,7 @@
     board(S, th, cam) {
       S.custom({ w: [th.x, 0, th.z ?? 0], bias: -9e5, draw(g) { SageHolo.board(g, cam, th, th.projected ? th.eye : null, th.t || 0); } });
     },
-    /** the room's phone, lying on the desk, its screen lit with a message, buzzing with `buzz` */
+    /** a phone, lying on the desk, its screen lit with a message, buzzing with `buzz` */
     phone(S, th) {
       const jit = th.buzz ? Math.sin((th.t || 0) * 3.1) * 0.8 * th.buzz : 0;
       S.box({ f: frame([th.x + jit, 2.2, th.z ?? 22], rotY(th.yaw ?? 0.35)), W: 30, H: 4.4, D: 62, r: 2.2, tones: PHONE, spec: 0.35, rimA: 0.25,

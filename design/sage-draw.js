@@ -9,7 +9,7 @@
   const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
   const mixc = (a, b, u) => { const A = hex(a), B = hex(b); return "#" + A.map((v, i) => Math.round(v + (B[i] - v) * u).toString(16).padStart(2, "0")).join(""); };
   const ramp = (dark, lit, n) => Array.from({ length: n }, (_, i) => mixc(dark, lit, i / (n - 1)));
-  // Tones for the prism: black turns to glass, so the graphite and rubber are lifted from the room's or they vanish.
+  // Tones for the prism: black turns to glass, so the graphite and rubber are lifted from the website's or they vanish.
   const SHELL = ramp("#a99f8d", "#fbf8f1", 8), GRAPH = ramp("#33363c", "#8a8f98", 6), RUBBER = ramp("#1f2124", "#55585e", 5);
   const DEAD = ramp("#2a2d31", "#6b7078", 4), AMBER = ramp("#8a5a1a", "#ffe1a8", 4), ANT = ramp("#4f8a4b", "#d8f7d2", 4), PAPER = ramp("#bdb3a0", "#f6f1e6", 4), PAD = ramp("#24312a", "#4a6656", 4);
   const T = { green: SAGE_GREEN, amber: "#ffb347", heart: "#ff3b5c", ink: "#8f8676", seam: "#8f8676", hole: "#16181b", holeLit: "#7d828b", screw: "#9aa0a8", hub: "#b9bdc4", tread: "#17181a", rim: "#cfe8d6" };
@@ -109,7 +109,7 @@
     for (let i = 0; i < 3; i++) { g.globalAlpha = a / (i + 1.6); g.fillStyle = "#000000"; g.beginPath(); g.ellipse(cx, cy, w * (1 - i * 0.18), h * (1 - i * 0.18), 0, 0, Math.PI * 2); g.fill(); }
     g.globalAlpha = 1;
   }
-  /** The glow the room gets from a blur, as three larger, fainter copies behind the thing itself. */
+  /** The glow the website gets from a blur, as three larger, fainter copies behind the thing itself. */
   function glow(g, cx, cy, draw) {
     for (const [grow, a] of [[0.16, 0.09], [0.07, 0.18]]) { g.save(); g.globalAlpha = a; g.translate(cx, cy); g.scale(1 + grow, 1 + grow); g.translate(-cx, -cy); draw(); g.restore(); }
     draw();
@@ -117,10 +117,10 @@
 
   // What its visor shows besides its eyes, all its own: a glider of the Game of Life crossing it (all is well), a
   // block of cells breaking into amber (something failed), cells lighting one by one (progress), a slow wave (asleep),
-  // a shutter down (do not disturb), dizzy spirals, the room's beating hearts, the website's prompt.
+  // a shutter down (do not disturb), dizzy spirals, the website's beating hearts and its prompt.
   const GLIDER = [[[1, 0], [2, 1], [0, 2], [1, 2], [2, 2]], [[0, 1], [2, 1], [1, 2], [2, 2], [1, 3]], [[2, 1], [0, 2], [2, 2], [1, 3], [2, 3]], [[1, 1], [2, 2], [3, 2], [1, 3], [2, 3]]];
   function cell(g, x, y, s) { rr(g, x + s * 0.08, y + s * 0.08, s * 0.84, s * 0.84, s * 0.22); g.fill(); }
-  /** the room's heart, its middle at (x, y), `s` about half its width */
+  /** the website's heart, its middle at (x, y), `s` about half its width */
   function heart(g, x, y, s) {
     g.beginPath(); g.moveTo(x, y + s * 0.8);
     g.bezierCurveTo(x - s * 1.2, y + s * 0.05, x - s * 0.62, y - s * 0.9, x, y - s * 0.32);
@@ -157,7 +157,7 @@
       g.strokeStyle = GRAPH[3]; g.lineWidth = Math.max(0.6, h * 0.02); for (let i = 1; i < 4 && h * 0.115 * i < h * 0.46 * shutter; i++) { g.beginPath(); g.moveTo(x, y + h * 0.115 * i); g.lineTo(x + w, y + h * 0.115 * i); g.stroke(); } g.restore();
     } else if (eyes === "dizzy") for (const cx of [x + w * 0.3, x + w * 0.7]) { g.beginPath(); for (let a = 0; a < Math.PI * 4; a += 0.35) { const r = h * 0.17 * (0.15 + a / (Math.PI * 4)), aa = a + t * 0.6; a === 0 ? g.moveTo(cx + r * Math.cos(aa), cy + r * Math.sin(aa)) : g.lineTo(cx + r * Math.cos(aa), cy + r * Math.sin(aa)); } g.stroke(); }
     else if (eyes === "hearts") {
-      // it loves what it sees: its eyes red hearts, beating, as in the room
+      // it loves what it sees: its eyes red hearts, beating, as on the website
       const beat = 1 + 0.1 * Math.max(0, Math.sin((t / 24) * 8));
       g.fillStyle = T.heart; for (const cx of [x + w * 0.3, x + w * 0.7]) heart(g, cx, cy, h * 0.2 * beat);
     }
@@ -335,7 +335,7 @@
     if (p.holo && window.SageHolo) SageHolo.add(S, cam, p.holo, eye, t);
     if (lit > 0) S.custom({ w: eye, bias: 400, draw(gg) { const e = cam.at(eye); for (const [r, a] of [[7, 0.14], [3.5, 0.35], [1.4, 0.9]]) { gg.globalAlpha = a * lit; gg.fillStyle = r < 2 ? "#e8ffe4" : T.green; gg.beginPath(); gg.arc(e[0], e[1], r * e[3], 0, Math.PI * 2); gg.fill(); } gg.globalAlpha = 1; } });
     // its lens flaring until its light fills the screen, as a hologram is about to take it
-    // (the room going dark round it, rings of its light going out from the lens, and its core blazing)
+    // (everything going dark round it, rings of its light going out from the lens, and its core blazing)
     if (p.flare > 0) S.custom({ w: eye, bias: 1e6, draw(gg) {
       const e = cam.at(eye), f = p.flare;
       gg.globalAlpha = 0.75 * f; gg.fillStyle = "#000000"; gg.fillRect(0, 0, 240, 240);

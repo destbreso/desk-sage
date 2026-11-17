@@ -7,8 +7,8 @@ A new look, or a look changed at scale, gets its sheet here before it is baked (
 | Sheet | What it shows | What was decided |
 |---|---|---|
 | [01](01-first-sheet.png) | The first sheet: Sage's head as the website draws it, its moods, and the same on the prism, where black turns to glass; three framings | The website's own face, drawn as the board's instructions |
-| [02](02-flat-or-3d.png) | Drawn flat with volume against the room's 3D renders, with what each costs a frame | Taken further in sheet 03 |
-| [03](03-three-looks.png) | Three looks at their best on the prism: illustrated, the room's 3D, made of the rain's glyphs | The author chose the illustrated look for everyday and the glyphs for its special moments; no 3D render for now |
+| [02](02-flat-or-3d.png) | Drawn flat with volume against 3D renders of Sage, with what each costs a frame | Taken further in sheet 03 |
+| [03](03-three-looks.png) | Three looks at their best on the prism: illustrated, rendered in 3D, made of the rain's glyphs | The author chose the illustrated look for everyday and the glyphs for its special moments; no 3D render for now |
 | [04](04-every-drawing-illustrated.png) | Every drawing of the art, illustrated and shaded in steps | |
 | [05](05-every-drawing-in-3d.png) | Every drawing once Sage stood in a small 3D world of flat shapes, the camera able to move | The author: the camera turning round it was wrong; a true 3D engine replaced it |
 | [06](06-first-things.png) | Every drawing with the first things that came for the author's work (a bug, a rocket, crates) | Too generic; drawn again in Sage's own materials (08) |

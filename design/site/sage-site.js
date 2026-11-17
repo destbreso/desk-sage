@@ -19,8 +19,8 @@ var SageSite = (() => {
   };
   var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
-  var sage_site_2HN0JpMFnw_exports = {};
-  __export(sage_site_2HN0JpMFnw_exports, {
+  var sage_site_exports = {};
+  __export(sage_site_exports, {
     CROSS_ANSWER: () => CROSS_ANSWER,
     PATIENCE: () => PATIENCE,
     SAGE_BOX: () => SAGE_BOX,
@@ -187,5 +187,5 @@ var SageSite = (() => {
     p.used = PATIENCE.after;
     return true;
   }
-  return __toCommonJS(sage_site_2HN0JpMFnw_exports);
+  return __toCommonJS(sage_site_exports);
 })();
