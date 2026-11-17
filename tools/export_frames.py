@@ -12,6 +12,8 @@
     python3 tools/export_frames.py --clip encore --define my_clips.json
                                                           # ...where the JSON adds sequences built from his
                                                           # existing drawings: {"encore": {"home": "idle", "seq": [["S1", 4], ...]}}
+                                                          # or chains of the art's own sequences, each for at most so many
+                                                          # ticks: {"session": {"chain": [["glyph_form"], ["idle", 72], ...]}}
     python3 tools/export_frames.py 8767                   # serve design/ for editing; run EXPORT_JS in the
                                                           # page's console to bake from your own browser
     python3 tools/export_frames.py --bake --page emulator/testcard/index.html --out emulator/testcard/testcard.bin
@@ -93,7 +95,17 @@ EXPORT_JS = r"""
   const L = window.__lump, cv = document.createElement('canvas'); cv.width = cv.height = 240;
   const c = cv.getContext('2d', { willReadFrequently: true });
   L.setLine('glow'); L.setTint(TINT);
-  for (const [name, def] of Object.entries(cfg.define || {})) L.CLIPS[name] = def;
+  // a sequence defined as drawings ({seq}), or as a chain of the art's own sequences ({chain: [[key, at most ticks], ...]})
+  const seqOf = (k) => L.LOOPS[k] || L.TRANS[k] || (L.CLIPS[k] && L.CLIPS[k].seq);
+  for (const [name, def] of Object.entries(cfg.define || {})) {
+    if (!def.chain) { L.CLIPS[name] = def; continue; }
+    const seq = [];
+    for (const [key, most] of def.chain) {
+      let left = most ?? Infinity;
+      for (const [id, hold] of seqOf(key)) { if (left <= 0) break; seq.push([id, Math.min(hold, left)]); left -= hold; }
+    }
+    L.CLIPS[name] = { home: def.home || 'idle', seq };
+  }
   // draw through a recorder, so each frame is also kept as the canvas calls that made it, and every text
   // drawn is noted by the state it was drawn in (the glyph atlas is rendered from them at the end)
   let ops = [];

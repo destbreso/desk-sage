@@ -1,0 +1,38 @@
+{
+  "session": {
+  "home": "idle",
+  "chain": [
+    ["glyph_form", null, "It forms out of the rain"],
+    ["idle", 72, "Waiting for something to happen"],
+    ["hello", null, "A session starts: hello"],
+    ["idle>working"],
+    ["working", 144, "Claude works, and it reads"],
+    ["working>idle"],
+    ["holo_tests", null, "The tests run, and two fail"],
+    ["idle>working"],
+    ["working", 96, "Back to work"],
+    ["working>idle"],
+    ["nod", null, "A commit gets a nod"],
+    ["work_build", null, "A build: its modules land on the pile"],
+    ["life_deploy", null, "A push: it sends a glider off"],
+    ["done_hearts", null, "Claude's done, and it loves it"],
+    ["idle>alert"],
+    ["alert", 96, "Something needs you"],
+    ["alert>idle"],
+    ["nod", null, "You tap it: seen it"],
+    ["fidget_turn", null, "A turn on the spot"],
+    ["tap_knock", null, "A knock: who's there?"],
+    ["rhythm_dance", null, "You tap a beat, and it dances"],
+    ["cam_orbit", null, "The camera goes round, and it keeps you in sight"],
+    ["holo_clock", null, "Late at night, it shows you the time"],
+    ["idle>night"],
+    ["night", 96, "Asleep"],
+    ["sleep_stir", null, "A tap in its sleep: it stirs"],
+    ["night", 48, "Asleep again"],
+    ["night>idle", null, "Morning"],
+    ["glyph_dissolve", null, "The bridge is gone: it falls into the rain"],
+    ["glyph_form", null, "and forms again, on its own"],
+    ["idle", 72, "Living on its own until the bridge comes back"]
+  ]
+  }
+}
