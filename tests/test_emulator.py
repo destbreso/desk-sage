@@ -271,6 +271,17 @@ class TheServer(unittest.TestCase):
             self.assertEqual(self.request("POST", "/emulator/board?page=1", b"tap\n", {"Content-Type": "text/plain"})[0], 204)
             self.assertTrue(until(lambda: any("tap: needs-you snoozed" in l for l in logs.output)))
 
+    def test_only_this_machine_s_callers_reach_the_bridge(self):
+        b = bridge.Buddy(dev=FakeDevice(), focus=FakeFocus(), sounds=FakeSounds(), start=False)
+        bridge.buddy = b
+        hook = json.dumps({"session_id": "s", "hook_event_name": "UserPromptSubmit", "prompt": "x"}).encode()
+        self.assertEqual(self.request("POST", "/hook", hook, {"Content-Type": "application/json"})[0], 204)   # a hook's curl
+        for origin in ("https://evil.example", "null", "http://127.0.0.1:1"):
+            self.assertEqual(self.request("POST", "/hook", hook, {"Origin": origin})[0], 403, origin)
+            self.assertEqual(self.request("POST", "/cmd", b"s working", {"Origin": origin})[0], 403, origin)
+        self.assertEqual(self.request("GET", "/status", headers={"Host": "rebound.example:%d" % self.port})[0], 403)
+        self.assertEqual(self.request("GET", "/status", headers={"Origin": "http://localhost:%d" % self.port})[0], 200)
+
     def test_without_the_emulator_its_paths_are_not_there(self):
         b = bridge.Buddy(dev=FakeDevice(), focus=FakeFocus(), sounds=FakeSounds(), start=False)
         bridge.buddy = b

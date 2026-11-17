@@ -1978,8 +1978,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._reply(404)
         return True
 
+    def _local(self):
+        """Only this machine's own callers reach the bridge: a request to 127.0.0.1 or localhost on its port (so a
+        rebound DNS name cannot), and from no web page but the bridge's own (a hook's curl sends no Origin; another
+        site's page always does, so it cannot post hooks or commands in the background)."""
+        port = self.server.server_address[1]
+        here = {f"127.0.0.1:{port}", f"localhost:{port}"}
+        origin = self.headers.get("Origin")
+        if self.headers.get("Host") in here and not (origin and origin.split("://", 1)[-1] not in here):
+            return True
+        self._reply(403, b"the bridge answers only this machine's own callers")
+        return False
+
     def do_POST(self):
         body = self.rfile.read(int(self.headers.get("Content-Length", 0) or 0))
+        if not self._local():
+            return
         if self.path.startswith("/emulator/") and self._emulator_post(body):
             return
         if self.path == "/hook":
@@ -2018,6 +2032,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._reply(404)
 
     def do_GET(self):
+        if not self._local():
+            return
         if self.path.startswith("/emulator") and self._emulator_get():
             return
         if self.path.startswith("/hardware/") and self._hardware_get():
