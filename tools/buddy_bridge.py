@@ -771,7 +771,7 @@ class Focus:
 
     def _run(self):
         import subprocess
-        if not shutil.which("lsappinfo"):            # not a Mac (the emulator's container): nothing to watch
+        if not shutil.which("lsappinfo"):            # not a Mac: nothing to watch
             log.info("focus: no lsappinfo here, so the app in front is not watched")
             return
         while True:
@@ -2021,7 +2021,6 @@ if __name__ == "__main__":
     ap.add_argument("--emulator", action="store_true", help='drive the web emulator (emulator/) instead of a board; also "emulator": true in config.json')
     ap.add_argument("--art", help='the art the board or the emulator plays, which Sage\'s mind and POST /play read its acts from (default: "art" in config.json, else firmware/data/sage.bin, else for the emulator the test card)')
     ap.add_argument("--port", type=int, default=HTTP_PORT, help="the HTTP port (default %(default)s, where the hooks post)")
-    ap.add_argument("--listen", default="127.0.0.1", help="the address the HTTP server listens on (default %(default)s; 0.0.0.0 inside a container, whose published port keeps it to this machine)")
     args = ap.parse_args()
     cfg, hub = read_config(), None
     emulating = args.emulator or cfg.get("emulator")
@@ -2036,7 +2035,7 @@ if __name__ == "__main__":
     buddy.app = AppPages(buddy)
     buddy.calendar = Calendar()
     buddy.slack = SlackWatch(buddy)
-    log.info("desk-buddy bridge listening on %s:%d", args.listen, args.port)
+    log.info("desk-buddy bridge listening on 127.0.0.1:%d", args.port)
     if hub:
         log.info("emulator: http://127.0.0.1:%d/emulator/ plays %s", args.port, hub.art)
-    http.server.ThreadingHTTPServer((args.listen, args.port), Handler).serve_forever()
+    http.server.ThreadingHTTPServer(("127.0.0.1", args.port), Handler).serve_forever()

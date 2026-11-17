@@ -14,15 +14,53 @@ Here's what you'll find in this repository:
 - **The hardware** ([hardware/index.html](hardware/index.html)) shows the board, its display and the prism in 3D at their real size. You can turn it around, take it apart down to the smallest piece and put it back together.
 - **The tools** bake the drawings into frames, check every frame against the browser's own drawing, update the board over the air and print the stand.
 
-## Try it
+## Quick start
 
-You don't need the board to see Sage. If you have Docker, run this in a clone of this repository:
+You don't need the board to see Sage. Pick how far you want to go.
+
+### Just look at it
+
+Nothing to install. Open these two files in your browser, straight from a clone of this repository.
+
+- `design/sage.html` plays every mood and act Sage has. Click one to watch it.
+- `hardware/index.html` shows the device in 3D at its real size. Drag it around, take it apart level by level, and click any part to see what it is.
+
+### Watch it play like the board
+
+You only need Python 3. Run this at the root of the repository:
 
 ```sh
-docker compose up
+python3 -m http.server
 ```
 
-Then open http://127.0.0.1:47823/emulator/. Install the Claude Code hooks with `python3 tools/install_hooks.py` and your own sessions drive it. If a bridge is already running on your Mac, stop it first, because both use the same port. Without Docker, `python3 tools/buddy_bridge.py --emulator` does the same thing. The [emulator's README](emulator/README.md) has the rest.
+Then open http://127.0.0.1:8000/emulator/. That's the board in a web page, playing the same frames the real one will play. Here's what you can try:
+
+- Click the board. That's a tap.
+- Switch between Simple and Realistic at the top. Simple is the bare board seen from the front. Realistic is the whole device in 3D, and you can turn it with your mouse.
+- Type a command in the Serial box, like `e holo_tests` or `s working`. The Commands button lists every one, with an example.
+
+There's no bridge here, so it lives on its own, the way it will when my Mac is asleep.
+
+### Let your own Claude Code drive it
+
+This is the real thing, minus the board. You need Python 3, and Node for Sage's mind. Without Node it still reacts, just more simply.
+
+```sh
+python3 tools/install_hooks.py
+python3 tools/buddy_bridge.py --emulator
+```
+
+The first command adds the hooks to your Claude Code settings. It backs them up first, and running it twice changes nothing. Then open http://127.0.0.1:47823/emulator/ and work as usual. Sage reads while Claude works, looks up when Claude is waiting for you, and reacts to your tests, builds, commits and pushes. A click on it is a tap, and its mind decides what that tap means.
+
+The button at the top cuts the link to the bridge. Use it to watch Sage lose your Mac, carry on alone with its antenna dark, and light up again when the link comes back.
+
+Stop the bridge with Ctrl+C. `python3 tools/install_hooks.py --uninstall` takes the hooks out again.
+
+### Go further
+
+- [emulator/README.md](emulator/README.md) explains everything on the emulator's page, and how it's checked against the firmware.
+- [tools/qemu/README.md](tools/qemu/README.md) runs the real compiled firmware in Espressif's QEMU, an emulated ESP32-S3. That one needs PlatformIO and QEMU installed.
+- [docs/BUILD.md](docs/BUILD.md) is what to buy when you want the real thing on your desk.
 
 ## Gallery
 
@@ -62,12 +100,10 @@ The one on the right is the emulator in its Realistic mode. Sage plays in the pr
 - [x] Its antenna going dark when it can't hear my Mac
 - [x] The real firmware running in a simulated ESP32-S3, so it's tested before the board arrives
 - [x] The emulator showing the whole device in 3D, with Sage alive in its prism, and a switch to cut the bridge and bring it back
-- [x] One `docker compose up` to try it with nothing installed
 - [ ] Its own voice, played on the Mac
 - [ ] More of my day as its senses: subagents, renders, permissions waiting on me, the site going live, me stepping away
 - [ ] Holograms that show the real numbers, like the time, my tests and its battery
 - [ ] A gallery page with every animation and what sets it off
-- [ ] The tools pinned, so a bake gives the same frames on any machine
 - [ ] The board itself, flashed and measured, sitting on my desk
 
 The phases and the open questions are in [docs/ROADMAP.md](docs/ROADMAP.md). What's already done, and how it was checked, is in [docs/HISTORY.md](docs/HISTORY.md).
