@@ -1,6 +1,6 @@
 # Sage on the desk
 
-Sage is the robot that lives on [destbreso.com](https://destbreso.com). This project gives it a body on my desk. You can [try it live](https://destbreso.github.io/desk-sage/) in your browser, and the whole story of how I built it is [on my site](https://destbreso.com/projects/desk-sage).
+Sage is the robot that lives on [destbreso.com](https://destbreso.com). This project gives it a body on my desk. You can [try it live](#try-it-live) in your browser, and the whole story of how I built it is [on my site](https://destbreso.com/projects/desk-sage).
 
 It lives in a small glass prism display. On the prism, black turns into glass, so its cream shell and green eyes look like they're floating in the air. It keeps me company while I work, and it reacts to what's happening on my computer, like Claude Code thinking or waiting for me, my tests passing or failing, or a push.
 
@@ -14,6 +14,21 @@ Here's what you'll find in this repository:
 - **How to build one** ([docs/BUILD.md](docs/BUILD.md)) tells you what to buy, where to get it and what it costs. The device itself is about US$27.
 - **The hardware** ([hardware/index.html](hardware/index.html)) shows the board, its display and the prism in 3D at their real size. You can turn it around, take it apart down to the smallest piece and put it back together.
 - **The tools** bake the drawings into frames, check every frame against the browser's own drawing, update the board over the air and print the stand.
+
+## Try it live
+
+The live demo is the board's emulator, served from this repository on GitHub Pages. It plays the same frames the real board will play, and it shows them on the whole device in 3D. There's nothing to install.
+
+<p align="center"><a href="https://destbreso.github.io/desk-sage/emulator/?mode=realistic"><img src="gallery/live-demo.webp?v=93b3aaa1" width="720" alt="The live demo: the device in 3D, with the board's readouts and the Serial box beside it"></a></p>
+
+- Drag to turn the device. Scroll to zoom.
+- Click the glass. That's a tap, and Sage answers it.
+- Type a command in the Serial box, like `e holo_tests`. The Commands button lists every one.
+- Switch to Simple to see the bare board from the front.
+
+My Mac isn't there, so Sage lives on its own, with its antenna dark. The button at the top connects a stand-in for my Mac, and you can watch Sage find it.
+
+[Open the live demo](https://destbreso.github.io/desk-sage/emulator/?mode=realistic). The [front page](https://destbreso.github.io/desk-sage/) links to everything else you can try in your browser.
 
 ## Quick start
 

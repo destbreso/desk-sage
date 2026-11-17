@@ -7,64 +7,181 @@
 <meta name="description" content="Sage, the robot of destbreso.com, on a glass prism display: the device live in 3D, the bare board, the hardware taken apart, every mood and act, and how a moment reaches the glass, all running in the browser.">
 <link rel="icon" href="data:,">
 <!-- The repository's page on GitHub Pages: every link opens a page of this repository as it is, nothing built for it. -->
+<!-- Geist Mono, destbreso.com's one font; offline, the system's monospace takes its place -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600;700&display=swap">
 <style>
+  /* destbreso.com's look, as values copied from the site: its dark tokens, its one font, its nearly square corners,
+     and the idioms of its pages (the prompt, ./ links, # comments, → bullets). Dark only, as the site's lab is. */
   :root {
     color-scheme: dark;
-    --bg: #0d0f12; --panel: #15181d; --line: #262b33; --fg: #d9dee6; --muted: #8b94a1; --accent: #4dd4e0;
-    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --background: oklch(0.1 0 0);
+    --foreground: oklch(0.85 0.12 142);
+    --card: oklch(0.15 0 0);
+    --primary: oklch(0.85 0.12 142);
+    --accent: oklch(0.75 0.15 60);
+    --muted-foreground: oklch(0.62 0.08 142);
+    --border: oklch(0.3 0.08 142);
+    --round: 8px;                                      /* the site's rounded-xl: its 0.25rem radius plus 4px */
+    --mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.6 var(--mono); }
-  main { max-width: 980px; margin: 0 auto; padding: 40px 16px 56px; }
-  header { display: grid; gap: 24px; align-items: center; grid-template-columns: minmax(0, 1fr); }
-  @media (min-width: 760px) { header { grid-template-columns: minmax(0, 1fr) 300px; } }
-  h1 { font-size: 26px; margin: 0 0 12px; font-weight: 600; }
-  .lede { margin: 0 0 12px; color: var(--fg); }
-  .sub { margin: 0; color: var(--muted); }
-  a { color: var(--accent); }
-  .device { display: block; justify-self: center; width: min(300px, 100%); border-radius: 8px; border: 1px solid var(--line); overflow: hidden; }
+  html { background: var(--background); }
+  body { margin: 0; background: var(--background); color: var(--foreground); font: 15px/1.7 var(--mono); }
+  ::selection { background: oklch(0.85 0.12 142 / 0.3); }
+  a { color: var(--accent); text-underline-offset: 3px; }
+  a:hover { color: var(--foreground); }
+  :focus-visible { outline: 2px solid oklch(0.85 0.12 142 / 0.6); outline-offset: 2px; }
+  .page { max-width: 1120px; margin: 0 auto; padding: 0 16px; }
+  @media (min-width: 640px) { .page { padding: 0 24px; } }
+
+  /* the header: the session's prompt, and the ways out */
+  header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 24px; padding: 18px 0 16px; border-bottom: 1px solid oklch(0.85 0.12 142 / 0.1); font-size: 13px; }
+  .prompt { color: var(--primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .prompt .dim { color: var(--muted-foreground); }
+  .prompt .tilde, .prompt .cmd { color: var(--accent); }
+  nav { display: flex; gap: 20px; }
+  nav a, .dot { color: var(--foreground); text-decoration: none; white-space: nowrap; }
+  nav a::before, .dot::before { content: "./"; color: var(--accent); }
+  nav a:hover, .dot:hover { color: var(--accent); }
+  .out { display: inline-block; width: 11px; height: 11px; margin-left: 5px; vertical-align: -1px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+  /* the hero: who Sage is, and the live demo first */
+  .hero { display: grid; gap: 32px; align-items: center; grid-template-columns: minmax(0, 1fr); padding: 48px 0 24px; }
+  @media (min-width: 860px) { .hero { grid-template-columns: minmax(0, 1fr) 340px; padding-top: 64px; } }
+  h1 { margin: 0; font-size: clamp(30px, 5vw, 40px); line-height: 1.15; font-weight: 700; letter-spacing: -0.01em; color: var(--primary); }
+  .rule { width: 48px; height: 2px; margin: 14px 0 18px; background: var(--accent); border-radius: 999px; }
+  .lede { margin: 0 0 14px; color: var(--muted-foreground); font-size: 16px; }
+  .lede a { color: var(--foreground); }
+  .note { margin: 0; color: var(--muted-foreground); font-size: 14px; }
+  .note::before { content: "# "; color: var(--accent); }
+  .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 26px; }
+  .button { display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 18px; font-size: 14px; font-weight: 500; text-decoration: none; border-radius: 2px; border: 1px solid; transition: background-color 150ms, border-color 150ms, color 150ms; }
+  .button svg { width: 14px; height: 14px; fill: currentColor; }
+  .button.primary { color: var(--accent); border-color: oklch(0.75 0.15 60 / 0.6); background: oklch(0.75 0.15 60 / 0.1); }
+  .button.primary:hover { color: var(--accent); border-color: var(--accent); background: oklch(0.75 0.15 60 / 0.2); }
+  .button.quiet { color: var(--muted-foreground); border-color: var(--border); background: oklch(0.15 0 0 / 0.4); }
+  .button.quiet:hover { color: var(--foreground); border-color: oklch(0.85 0.12 142 / 0.4); background: oklch(0.15 0 0 / 0.7); }
+  .device { position: relative; display: block; justify-self: center; width: min(340px, 100%); border-radius: var(--round); border: 1px solid var(--border); overflow: hidden; background: #0d0f12; transition: border-color 150ms; }
+  .device:hover { border-color: oklch(0.75 0.15 60 / 0.5); }
   .device img { display: block; width: 100%; height: auto; }
-  .go { display: inline-block; margin-top: 18px; padding: 8px 16px; border: 1px solid var(--accent); border-radius: 6px; color: var(--accent); text-decoration: none; background: rgba(77, 212, 224, 0.08); }
-  .go:hover, .go:focus-visible { background: rgba(77, 212, 224, 0.16); }
-  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 500; margin: 44px 0 14px; }
-  .cards { display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr); list-style: none; margin: 0; padding: 0; }
+
+  /* a section: its title in green, the short amber rule, then what it is */
+  section { padding: 40px 0 8px; }
+  h2 { margin: 0; font-size: clamp(22px, 3.2vw, 28px); line-height: 1.25; font-weight: 700; letter-spacing: -0.01em; color: var(--primary); }
+  .intro { margin: 0; color: var(--muted-foreground); }
+  .demo { display: grid; gap: 28px; grid-template-columns: minmax(0, 1fr); align-items: start; }
+  @media (min-width: 900px) { .demo { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); } }
+  .steps { list-style: none; margin: 18px 0 0; padding: 0; display: grid; gap: 8px; color: var(--muted-foreground); }
+  .steps li { padding-left: 22px; text-indent: -22px; }
+  .steps li::before { content: "→"; display: inline-block; width: 22px; text-indent: 0; color: var(--accent); }
+  .steps code, .intro code { font-family: inherit; color: var(--foreground); background: oklch(0.25 0 0 / 0.6); padding: 1px 5px; border-radius: 2px; white-space: nowrap; }
+  .shot { display: block; border-radius: var(--round); border: 1px solid var(--border); overflow: hidden; background: #07090d; transition: border-color 150ms; }
+  .shot:hover { border-color: oklch(0.75 0.15 60 / 0.5); }
+  .shot img { display: block; width: 100%; height: auto; }
+
+  /* the rest to try, as the site's lab shows its demos: a picture, a title, what it is, the way in */
+  .cards { list-style: none; margin: 22px 0 0; padding: 0; display: grid; gap: 20px; grid-template-columns: minmax(0, 1fr); }
   @media (min-width: 640px) { .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-  .cards a { display: block; height: 100%; padding: 14px 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; text-decoration: none; color: var(--fg); }
-  .cards a:hover, .cards a:focus-visible { border-color: var(--accent); }
-  .cards b { display: block; color: var(--accent); font-weight: 500; margin-bottom: 4px; }
-  .cards span { color: var(--muted); font-size: 13.5px; }
-  footer { margin-top: 44px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; display: flex; flex-wrap: wrap; gap: 6px 20px; }
-  a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  @media (min-width: 980px) { .cards { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  .card { display: flex; flex-direction: column; height: 100%; text-decoration: none; color: var(--foreground); border: 1px solid var(--border); border-radius: var(--round); overflow: hidden;
+          background: oklch(0.15 0 0 / 0.5); transition: border-color 200ms, background-color 200ms, box-shadow 200ms; }
+  .card:hover { color: var(--foreground); border-color: oklch(0.75 0.15 60 / 0.3); background: oklch(0.15 0 0 / 0.8); box-shadow: 0 10px 15px -3px oklch(0.75 0.15 60 / 0.05); }
+  .card .pic { position: relative; aspect-ratio: 16 / 10; overflow: hidden; background: #000; }
+  .card .pic img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transition: transform 300ms; }
+  .card .pic img.whole { object-fit: contain; }
+  .card:hover .pic img { transform: scale(1.05); }
+  .card .pic::after { content: ""; position: absolute; inset: auto 0 0; height: 80px; background: linear-gradient(transparent, rgb(0 0 0 / 0.75)); }
+  .card b { position: absolute; left: 14px; right: 14px; bottom: 10px; z-index: 1; font-size: 15px; color: #fff; text-shadow: 0 1px 3px rgb(0 0 0 / 0.8); transition: color 150ms; }
+  .card:hover b { color: var(--accent); }
+  .card .what { flex: 1; margin: 0; padding: 12px 14px 0; font-size: 13px; line-height: 1.6; color: var(--muted-foreground); }
+  .card .go { margin: 12px 14px 0; padding: 8px 0 12px; border-top: 1px solid oklch(0.3 0.08 142 / 0.3); font-size: 12px; font-weight: 500; color: var(--accent); }
+  .card .go svg { width: 10px; height: 10px; margin-right: 6px; fill: currentColor; vertical-align: 0; }
+
+  footer { margin: 56px 0 0; padding: 18px 0 40px; border-top: 1px solid oklch(0.85 0.12 142 / 0.1); display: flex; flex-wrap: wrap; gap: 8px 24px; font-size: 13px; color: var(--muted-foreground); }
+  footer .license { flex-basis: 100%; }
 </style>
 </head>
 <body>
-<main>
+<div class="page">
   <header>
-    <div>
-      <h1>Sage on the desk</h1>
-      <p class="lede">Sage is the robot that lives on <a href="https://destbreso.com">destbreso.com</a>. This is its body on my desk: a small glass prism display that reacts to my work with Claude Code.</p>
-      <p class="sub">Everything here runs in your browser, the same way the board runs it. No install, no account.</p>
-      <a class="go" href="emulator/?mode=realistic">Open the device, live in 3D</a>
-    </div>
-    <a class="device" href="emulator/?mode=realistic" aria-label="Open the device, live in 3D">
-      <img src="gallery/hardware/live.gif" width="400" height="400" alt="The device turning slowly, with Sage alive inside the prism">
-    </a>
+    <span class="prompt">guest@destbreso<span class="dim">:</span><span class="tilde">~/desk-sage</span>$ <span class="cmd">cat README.md</span></span>
+    <nav aria-label="Elsewhere">
+      <a href="https://github.com/destbreso/desk-sage" target="_blank" rel="noopener" title="The source on GitHub, in a new tab">source<svg class="out" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17 17 7M8 7h9v9"/></svg></a>
+      <a href="https://destbreso.com/projects/desk-sage" target="_blank" rel="noopener" title="The whole story on destbreso.com, in a new tab">story<svg class="out" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17 17 7M8 7h9v9"/></svg></a>
+    </nav>
   </header>
 
-  <h2>Try it</h2>
-  <ul class="cards">
-    <li><a href="emulator/?mode=realistic"><b>The device, live in 3D</b><span>Sage in its prism, playing the frames the board plays. Turn it, click it to tap it, and type it commands.</span></a></li>
-    <li><a href="emulator/?mode=simple"><b>The bare board</b><span>The same board seen square from the front, its picture exactly as the firmware draws it.</span></a></li>
-    <li><a href="hardware/"><b>The hardware, taken apart</b><span>Every part at its real size, down to the layers of the display. Click one to see what it is.</span></a></li>
-    <li><a href="design/sage.html"><b>Every mood and act</b><span>Pick any of Sage's moods and acts and watch it play.</span></a></li>
-    <li><a href="docs/figures/flow.html"><b>How a moment reaches the glass</b><span>A quarter of an hour of my work, simulated, from a Claude Code hook to the board. Put the Mac to sleep and watch.</span></a></li>
-  </ul>
+  <main>
+    <div class="hero">
+      <div>
+        <h1>Sage on the desk</h1>
+        <div class="rule"></div>
+        <p class="lede">Sage is the robot that lives on <a href="https://destbreso.com">destbreso.com</a>. This is its body on my desk: a small glass prism display that reacts to my work with Claude Code.</p>
+        <p class="note">Everything here runs in your browser, the same way the board runs it. No install, no account.</p>
+        <div class="actions">
+          <a class="button primary" href="emulator/?mode=realistic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4v16l13-8z"/></svg>Open the live demo</a>
+          <a class="button quiet" href="emulator/?mode=simple">The bare board</a>
+        </div>
+      </div>
+      <a class="device" href="emulator/?mode=realistic" aria-label="Open the live demo, the device in 3D">
+        <img src="gallery/hardware/live.gif" width="400" height="400" alt="The device turning slowly, with Sage alive inside the prism">
+      </a>
+    </div>
+
+    <section aria-labelledby="live">
+      <h2 id="live">The live demo</h2>
+      <div class="rule"></div>
+      <div class="demo">
+        <div>
+          <p class="intro">It's the board's emulator. It plays the same frames the real board will play, and it shows them on the whole device in 3D.</p>
+          <ul class="steps">
+            <li>Drag to turn the device. Scroll to zoom.</li>
+            <li>Click the glass. That's a tap, and Sage answers it.</li>
+            <li>Type a command in the Serial box, like <code>e holo_tests</code>. The Commands button lists every one.</li>
+            <li>Switch to Simple to see the bare board from the front.</li>
+            <li>My Mac isn't here, so Sage lives on its own, with its antenna dark. The button at the top connects a stand-in for my Mac, and you can watch Sage find it.</li>
+          </ul>
+          <div class="actions">
+            <a class="button primary" href="emulator/?mode=realistic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4v16l13-8z"/></svg>Open the live demo</a>
+          </div>
+        </div>
+        <a class="shot" href="emulator/?mode=realistic" aria-label="Open the live demo">
+          <img src="gallery/live-demo.webp" width="1440" height="900" loading="lazy" alt="The live demo: the device in 3D in the middle, the board's readouts and the Serial box beside it">
+        </a>
+      </div>
+    </section>
+
+    <section aria-labelledby="more">
+      <h2 id="more">More to try</h2>
+      <div class="rule"></div>
+      <p class="intro">Each of these is a page of the repository, and runs in your browser too.</p>
+      <ul class="cards">
+        <li><a class="card" href="hardware/">
+          <span class="pic"><img src="gallery/hardware/whole.png" width="1600" height="996" loading="lazy" alt=""><b>The hardware, taken apart</b></span>
+          <span class="what">Every part at its real size, down to the layers of the display. Click one to see what it is.</span>
+          <span class="go"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4v16l13-8z"/></svg>Open</span>
+        </a></li>
+        <li><a class="card" href="design/sage.html">
+          <span class="pic"><img class="whole" src="gallery/sage/idle.gif" width="240" height="240" loading="lazy" alt=""><b>Every mood and act</b></span>
+          <span class="what">Pick any of Sage's moods and acts and watch it play.</span>
+          <span class="go"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4v16l13-8z"/></svg>Open</span>
+        </a></li>
+        <li><a class="card" href="docs/figures/flow.html">
+          <span class="pic"><img src="docs/figures/flow-light.webp" width="1884" height="1806" loading="lazy" alt=""><b>How a moment reaches the glass</b></span>
+          <span class="what">A quarter of an hour of my work, simulated, from a Claude Code hook to the board. Put the Mac to sleep and watch.</span>
+          <span class="go"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4v16l13-8z"/></svg>Open</span>
+        </a></li>
+      </ul>
+    </section>
+  </main>
 
   <footer>
-    <a href="https://github.com/destbreso/desk-sage">The source on GitHub</a>
-    <a href="https://destbreso.com/projects/desk-sage">The whole story</a>
-    <span>The engine is MIT. Sage itself is mine (<a href="LICENSE-ART.md">LICENSE-ART.md</a>).</span>
+    <a class="dot" href="https://github.com/destbreso/desk-sage">source</a>
+    <a class="dot" href="https://destbreso.com/projects/desk-sage">story</a>
+    <span class="license">The engine is MIT. Sage itself is mine (<a href="LICENSE-ART.md">LICENSE-ART.md</a>).</span>
   </footer>
-</main>
+</div>
 </body>
 </html>

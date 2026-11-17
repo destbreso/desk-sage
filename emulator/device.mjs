@@ -29,9 +29,9 @@ export async function createDevice(host, { source, onTap, capture = false }) {
   const canvas = renderer.domElement;
   host.prepend(canvas);
 
-  // the hardware page's light, on the emulator's background
+  // the hardware page's light, on the page's own background (index.html's --board)
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x0d0f12);
+  scene.background = new THREE.Color(getComputedStyle(host).getPropertyValue('--board').trim() || '#07090d');
   const pmrem = new THREE.PMREMGenerator(renderer);
   scene.environment = pmrem.fromScene(new RoomEnvironment(renderer), 0.04).texture;
   scene.add(new THREE.AmbientLight(0xffffff, 0.22));

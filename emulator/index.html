@@ -5,133 +5,214 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Desk emulator</title>
 <link rel="icon" href="data:,">
+<!-- Geist Mono, destbreso.com's one font; offline, the system's monospace takes its place -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600;700&display=swap">
 <style>
+  /* The look of destbreso.com's lab demos, as values copied from the site: its tokens (dark), and its demos' board,
+     glass, corners and palette (the lab draws them with Tailwind's neutral, cyan, emerald and amber). */
   :root {
     color-scheme: dark;
-    --bg: #0d0f12; --panel: #15181d; --line: #262b33; --fg: #d9dee6; --muted: #8b94a1; --accent: #4dd4e0; --warn: #ffb547;
-    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --primary: oklch(0.85 0.12 142);                  /* destbreso.com: terminal green, its focus ring */
+    --accent: oklch(0.75 0.15 60);                    /* destbreso.com: amber */
+    --board: #07090d;                                 /* a lab demo's board, behind its panels */
+    --glass: oklch(0.145 0 0 / 0.4);
+    --edge: rgb(255 255 255 / 0.08);
+    --hair: rgb(255 255 255 / 0.1);
+    --line: rgb(255 255 255 / 0.2);
+    --well: rgb(0 0 0 / 0.3);
+    --n100: oklch(0.97 0 0); --n200: oklch(0.922 0 0); --n300: oklch(0.87 0 0); --n400: oklch(0.708 0 0); --n500: oklch(0.556 0 0);
+    --cyan200: oklch(0.917 0.08 205.041); --cyan300: oklch(0.865 0.127 207.078); --cyan500: oklch(0.715 0.143 215.221);
+    --emerald400: oklch(0.765 0.177 163.223); --emerald500: oklch(0.696 0.17 162.48);
+    --amber300: oklch(0.879 0.169 91.605); --amber500: oklch(0.769 0.188 70.08);
+    /* corners: the panels a little round, the bars of controls rounder, the controls nearly square (the site's radius) */
+    --panel-round: 8px; --bar-round: 16px; --control-round: 2px;
+    --mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   }
   * { box-sizing: border-box; }
   [hidden] { display: none !important; }
-  body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 var(--mono); }
-  main { max-width: 1180px; margin: 0 auto; padding: 20px 16px 48px; display: grid; gap: 24px; grid-template-columns: minmax(0, 1fr); }
-  @media (min-width: 960px) { main { grid-template-columns: minmax(0, 520px) minmax(0, 1fr); align-items: start; } }
-  h1 { font-size: 18px; margin: 0 0 4px; font-weight: 600; }
-  .sub { color: var(--muted); margin: 0; }
-  .status { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px 14px; }
-  .status span::before { content: "\25CF  "; color: var(--muted); }
-  .status .on::before { color: var(--accent); }
-  .status .off::before { color: var(--warn); }
+  html { background: var(--board); }
+  body { margin: 0; background: var(--board); color: var(--n300); font: 12px/1.5 var(--mono); }
+  ::selection { background: oklch(0.85 0.12 142 / 0.3); }
+  a { color: inherit; }
+  .glass { background: var(--glass); border: 1px solid var(--edge); -webkit-backdrop-filter: blur(40px) saturate(1.5) brightness(0.7); backdrop-filter: blur(40px) saturate(1.5) brightness(0.7);
+           box-shadow: 0 10px 40px rgb(0 0 0 / 0.4), inset 0 1px 0 rgb(255 255 255 / 0.07); }
+  :focus-visible { outline: 2px solid oklch(0.85 0.12 142 / 0.6); outline-offset: 1px; }
+
+  /* the controls: thin, nearly square, quiet until pointed at */
+  button, label.button { font: inherit; font-size: 11px; height: 28px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; color: var(--n400); background: transparent;
+                         border: 1px solid var(--line); border-radius: var(--control-round); cursor: pointer; white-space: nowrap; transition: color 150ms, background-color 150ms, border-color 150ms; }
+  button:hover, label.button:hover { color: var(--n200); background: rgb(255 255 255 / 0.05); }
+  label.button { position: relative; }
+  label.button input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+  label.button:focus-within { outline: 2px solid oklch(0.85 0.12 142 / 0.6); outline-offset: 1px; }
+  input[type=text] { font: inherit; font-size: 11px; height: 28px; width: 100%; min-width: 0; color: var(--n200); background: var(--well); border: 1px solid var(--line); border-radius: var(--control-round); padding: 0 10px; }
+  input[type=text]::placeholder { color: var(--n500); }
+  input[type=text]:focus { border-color: oklch(0.789 0.154 211.53 / 0.4); outline: none; }
+
+  /* the top bar, 8 px from the screen's sides: the way back, the name, the view, the link to the bridge */
+  .topbar { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 8px 0; position: relative; z-index: 3; }
+  .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; min-height: 46px; min-width: 0; padding: 8px 16px; border-radius: var(--bar-round); }
+  .bar.end { margin-left: auto; padding: 8px 12px; }
+  .sep { width: 1px; height: 16px; background: var(--hair); }
+  .back, .out { display: inline-flex; align-items: center; gap: 4px; height: 28px; font-size: 11px; color: var(--n400); text-decoration: none; white-space: nowrap; }
+  .back:hover, .out:hover { color: var(--n200); }
+  .out { border: 1px solid var(--line); border-radius: var(--control-round); padding: 0 10px; }
+  .out:hover { background: rgb(255 255 255 / 0.05); }
+  .back svg, .out svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  h1 { margin: 0; font-size: 12px; font-weight: 700; letter-spacing: 0.025em; text-transform: uppercase; color: var(--cyan300); white-space: nowrap; }
+  .modes { display: inline-flex; gap: 4px; }
+  .modes button { padding: 0 12px; }
+  .modes button[aria-pressed="true"] { border-color: oklch(0.715 0.143 215.221 / 0.3); background: oklch(0.715 0.143 215.221 / 0.2); color: var(--cyan200); }
+  .status { display: flex; flex-wrap: wrap; gap: 2px 14px; font-size: 10.5px; color: var(--n400); }
+  .status span { white-space: nowrap; }
+  .status span::before { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 7px; vertical-align: 1px; background: var(--n500); }
+  .status .on::before { background: var(--emerald400); box-shadow: 0 0 6px oklch(0.765 0.177 163.223 / 0.6); }
+  .status .off::before { background: var(--amber500); }
+
+  /* the board's room, and under it the line about the link; the readouts and the Serial box in a column beside them */
+  .work { display: grid; gap: 8px; grid-template-columns: minmax(0, 1fr); padding: 8px 12px 12px; }
+  .stage-col { display: grid; gap: 8px; min-width: 0; }
+  .stage { position: relative; min-width: 0; }
+  .side { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .tip { color: var(--n500); font-size: 10.5px; text-align: center; margin: 14px auto 0; }
+  .dock { display: flex; align-items: center; min-height: 44px; padding: 8px 16px; border-radius: var(--bar-round); }
+  .linkline { margin: 0; color: var(--n400); font-size: 10.5px; }
+  .linkline b { color: var(--n100); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .linkline button { height: 22px; padding: 0 8px; margin-left: 6px; font-size: 10px; vertical-align: 0; color: var(--amber300); border-color: oklch(0.769 0.188 70.08 / 0.35); background: oklch(0.769 0.188 70.08 / 0.1); }
+  .linkline button:hover { color: var(--amber300); background: oklch(0.769 0.188 70.08 / 0.2); }
 
   /* Simple: the bare board square from the front (emulator/front.mjs draws it and places the picture on its display) */
-  .stage { display: flex; flex-direction: column; align-items: center; gap: 0; margin-top: 20px; }
+  #simple { display: flex; flex-direction: column; align-items: center; padding: 20px 0 8px; }
   .front { position: relative; width: min(400px, calc(100vw - 32px)); aspect-ratio: 26.25 / 29.22; cursor: pointer; outline: none; touch-action: manipulation;
-           filter: drop-shadow(0 22px 26px rgba(0, 0, 0, 0.55)) drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6)); }
-  .front:focus-visible { outline: 2px solid var(--accent); outline-offset: 6px; border-radius: 2px; }
+           filter: drop-shadow(0 22px 26px rgb(0 0 0 / 0.55)) drop-shadow(0 2px 3px rgb(0 0 0 / 0.6)); }
+  .front:focus-visible { outline: 2px solid oklch(0.85 0.12 142 / 0.6); outline-offset: 6px; border-radius: 2px; }
   .front svg { display: block; width: 100%; height: 100%; }
   .front canvas { position: absolute; transition: filter 120ms linear; }
-  .front .sheen { position: absolute; pointer-events: none; background: linear-gradient(155deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.015) 30%, rgba(255,255,255,0) 52%, rgba(255,255,255,0) 82%, rgba(255,255,255,0.025) 100%); }
-  .hint { color: var(--muted); text-align: center; margin: 18px 0 0; max-width: 46ch; }
+  .front .sheen { position: absolute; pointer-events: none; background: linear-gradient(155deg, rgb(255 255 255 / 0.06) 0%, rgb(255 255 255 / 0.015) 30%, rgb(255 255 255 / 0) 52%, rgb(255 255 255 / 0) 82%, rgb(255 255 255 / 0.025) 100%); }
 
-  /* Simple or Realistic, and the link to the bridge: one board and one link behind both views */
-  .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 14px; }
-  .modes { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
-  .modes button { border: 0; border-radius: 0; background: transparent; color: var(--muted); padding: 5px 14px; }
-  .modes button + button { border-left: 1px solid var(--line); }
-  .modes button:hover { color: var(--fg); }
-  .modes button[aria-pressed="true"] { background: #1f242b; color: var(--fg); box-shadow: inset 0 -2px 0 var(--accent); }
-  .modes button:focus-visible { outline-offset: -2px; }
-  #linkbtn { margin-left: auto; }
-  .linkline { color: var(--muted); font-size: 12.5px; margin: 8px 0 0; min-height: 1.5em; }
-  .linkline button { padding: 1px 10px; font-size: 12px; margin-left: 4px; }
-  .linkline b { color: var(--fg); font-weight: 500; font-variant-numeric: tabular-nums; }
-
-  /* Realistic: the device in 3D, the board's picture on its display */
-  .device-wrap { position: relative; margin-top: 16px; }
-  .device { position: relative; width: 100%; aspect-ratio: 1 / 1.06; border-radius: 8px; overflow: hidden; outline: none; touch-action: none; cursor: grab; background: var(--bg); }
-  .device:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
+  /* Realistic: the device in 3D, the board's picture on its display, on the board's own background */
+  .device-wrap { position: relative; }
+  .device { position: relative; width: 100%; aspect-ratio: 1 / 1.06; border-radius: var(--panel-round); overflow: hidden; outline: none; touch-action: none; cursor: grab; background: var(--board); }
+  .device:focus-visible { box-shadow: inset 0 0 0 2px oklch(0.85 0.12 142 / 0.6); }
   .device canvas { display: block; }
-  .device::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 16%; background: linear-gradient(rgba(13, 15, 18, 0), var(--bg)); pointer-events: none; }
-  body.capture .device::after { display: none; }
-  .device-wrap .reset { position: absolute; right: 10px; top: 10px; font-size: 12px; padding: 3px 10px; }
-  .device-note { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; color: var(--muted); padding: 24px; margin: 0; pointer-events: none; }
+  .device::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 16%; background: linear-gradient(rgb(7 9 13 / 0), var(--board)); pointer-events: none; }
+  .device-wrap .reset { position: absolute; right: 8px; top: 8px; }
+  .device-note { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; color: var(--n500); padding: 24px; margin: 0; pointer-events: none; }
   .device-note[hidden] { display: none; }
-  .device-wrap .hint { margin: 12px auto 0; }
-  body.capture main { display: block; max-width: none; padding: 0; }
-  body.capture main > div > :not(#realistic), body.capture main > div:last-child, body.capture #realistic > :not(.device) { display: none !important; }
-  body.capture #realistic { margin: 0; }
-  body.capture .device { width: 100vw; height: 100vh; aspect-ratio: auto; border-radius: 0; }
 
-  section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; min-width: 0; }
-  section + section { margin-top: 16px; }
-  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 0 0 10px; font-weight: 500; }
-  dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 2px 16px; margin: 0; }
-  dt { color: var(--muted); }
-  dd { margin: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
-  .swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -1px; margin-right: 6px; border: 1px solid var(--line); }
-  .problems { color: var(--warn); margin: 8px 0 0; padding-left: 18px; }
-  form { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
-  .tools { display: flex; gap: 8px; flex-wrap: wrap; flex-basis: 100%; }
-  .combo { position: relative; flex: 1 1 200px; min-width: 0; display: flex; }
-  input[type=text] { flex: 1 1 auto; width: 100%; min-width: 0; font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; }
-  button, label.button { font: inherit; color: var(--fg); background: #1f242b; border: 1px solid var(--line); border-radius: 6px; padding: 6px 12px; cursor: pointer; }
-  button:hover, label.button:hover { border-color: var(--muted); }
-  button:focus-visible, input:focus-visible, label.button:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
-  label.button input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+  /* the readouts and the Serial box: glass cards, 12 px from the screen's side */
+  section { min-width: 0; padding: 8px 12px 12px; border-radius: var(--panel-round); background: var(--glass); border: 1px solid rgb(255 255 255 / 0.07);
+            -webkit-backdrop-filter: blur(24px) saturate(1.5); backdrop-filter: blur(24px) saturate(1.5); box-shadow: 0 8px 30px rgb(0 0 0 / 0.32), inset 0 1px 0 rgb(255 255 255 / 0.06); }
+  h2 { display: flex; justify-content: space-between; gap: 8px; margin: 2px 0 8px; font-size: 9px; font-weight: 500; letter-spacing: 0.1em; text-transform: uppercase; color: var(--n500); }
+  h2 small { font-size: inherit; color: oklch(0.865 0.127 207.078 / 0.8); letter-spacing: inherit; }
+  .lead { margin: 0 0 8px; color: var(--n400); font-size: 10.5px; line-height: 1.45; }
+  dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 1px 14px; margin: 0; font-size: 10.5px; line-height: 1.55; }
+  dt { color: var(--n400); }
+  dd { margin: 0; color: var(--n200); overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+  .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: -1px; margin-right: 6px; border: 1px solid var(--line); }
+  .problems { color: var(--amber300); margin: 8px 0 0; padding-left: 18px; font-size: 10.5px; }
+  form { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+  .tools { display: flex; gap: 6px; flex-wrap: wrap; flex-basis: 100%; }
+  .combo { position: relative; flex: 1 1 160px; min-width: 0; display: flex; }
+  form button[type=submit] { color: var(--emerald400); border-color: oklch(0.696 0.17 162.48 / 0.3); background: oklch(0.696 0.17 162.48 / 0.2); }
+  form button[type=submit]:hover { background: oklch(0.696 0.17 162.48 / 0.3); }
   /* the board's commands: suggestions while typing, and the whole list on demand */
-  #suggest { position: absolute; left: 0; top: calc(100% + 4px); min-width: 100%; width: max-content; max-width: min(460px, calc(100vw - 48px)); z-index: 5; margin: 0; padding: 4px; list-style: none; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; max-height: 248px; overflow: auto; box-shadow: 0 14px 28px -10px #000; }
+  #suggest { position: absolute; left: 0; top: calc(100% + 4px); min-width: 100%; width: max-content; max-width: min(460px, calc(100vw - 48px)); z-index: 5; margin: 0; padding: 4px; list-style: none;
+             background: linear-gradient(oklch(0.205 0 0), #000); border: 1px solid var(--hair); border-radius: var(--panel-round); max-height: 248px; overflow: auto;
+             box-shadow: 0 0 80px rgb(0 0 0 / 0.85), inset 0 1px 0 rgb(255 255 255 / 0.05); font-size: 11px; }
   #suggest[hidden] { display: none; }
-  #suggest li { display: flex; justify-content: space-between; align-items: baseline; gap: 14px; padding: 4px 8px; border-radius: 4px; cursor: pointer; }
-  #suggest li .what { color: var(--muted); font-size: 12px; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-  #suggest li.hint { cursor: default; color: var(--muted); display: block; }
-  #suggest li[aria-selected="true"] { background: #1f242b; box-shadow: inset 2px 0 0 var(--accent); }
-  #suggest mark { background: none; color: var(--accent); }
-  #commands[aria-expanded="true"] { border-color: var(--accent); color: var(--accent); }
-  .help { margin: 0 0 10px; padding: 10px 12px; max-height: 340px; overflow: auto; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; }
+  #suggest li { display: flex; justify-content: space-between; align-items: baseline; gap: 14px; padding: 4px 8px; border-radius: var(--control-round); cursor: pointer; color: var(--n200); }
+  #suggest li .what { color: var(--n500); font-size: 10px; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  #suggest li.hint { cursor: default; color: var(--n400); display: block; font-size: 10.5px; }
+  #suggest li[aria-selected="true"] { background: oklch(0.715 0.143 215.221 / 0.15); box-shadow: inset 2px 0 0 var(--cyan300); }
+  #suggest mark { background: none; color: var(--cyan300); }
+  #commands[aria-expanded="true"] { border-color: oklch(0.715 0.143 215.221 / 0.3); background: oklch(0.715 0.143 215.221 / 0.2); color: var(--cyan200); }
+  .help { margin: 0 0 8px; padding: 8px 10px; max-height: 340px; overflow: auto; background: var(--well); border: 1px solid var(--hair); border-radius: var(--control-round); font-size: 10.5px; }
   .help[hidden] { display: none; }
-  .help p { margin: 0 0 8px; color: var(--muted); font-size: 12.5px; }
+  .help p { margin: 0 0 8px; color: var(--n400); }
   .help ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
   .help li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; align-items: baseline; }
-  .help code { color: var(--fg); overflow-wrap: anywhere; }
-  .help li .d { grid-column: 1 / -1; color: var(--muted); font-size: 12.5px; }
-  .help .ex { font-size: 12px; padding: 1px 8px; color: var(--accent); }
-  .help .noex { font-size: 12px; color: var(--muted); }
-  #log { height: 260px; overflow: auto; margin: 0; padding: 8px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
-  #log .in { color: var(--accent); }
-  #log .note { color: var(--muted); }
+  .help code { font-family: inherit; color: var(--n100); overflow-wrap: anywhere; }
+  .help li .d { grid-column: 1 / -1; color: var(--n500); }
+  .help .ex { height: 22px; font-size: 10px; padding: 0 8px; color: var(--cyan300); }
+  .help .noex { font-size: 10px; color: var(--n500); }
+  #log { height: 260px; overflow: auto; margin: 0; padding: 8px; background: var(--well); border: 1px solid var(--hair); border-radius: var(--control-round);
+         font: 10.5px/1.5 var(--mono); color: var(--n300); white-space: pre-wrap; overflow-wrap: anywhere; }
+  #log .in { color: oklch(0.865 0.127 207.078 / 0.9); }
+  #log .note { color: var(--n500); }
+
+  /* a wide screen with room in its height: the page is the board's room, as a lab demo is; the column beside it scrolls on its own */
+  @media (min-width: 960px) and (min-height: 600px) {
+    body { height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
+    .work { flex: 1 1 auto; min-height: 0; grid-template-columns: minmax(0, 1fr) 360px; padding: 8px 12px 12px; }
+    .stage-col { grid-template-rows: minmax(0, 1fr) auto; min-height: 0; }
+    .stage { min-height: 0; container-type: size; }
+    #simple { position: absolute; inset: 0; justify-content: center; padding: 0; }
+    .front { width: min(440px, 100cqw - 48px, (100cqh - 72px) * 26.25 / 29.22); }
+    #realistic { position: absolute; inset: 0; }
+    .device { height: 100%; aspect-ratio: auto; }
+    #realistic .tip { position: absolute; left: 0; right: 0; bottom: 12px; margin: 0 auto; pointer-events: none; }
+    .side { min-height: 0; overflow-y: auto; scrollbar-width: thin; }
+    .side section:last-child { flex: 1 0 auto; display: flex; flex-direction: column; }
+    #log { flex: 1 1 auto; height: auto; min-height: 160px; }
+  }
+  @media (max-width: 600px) { .bar .sep { display: none; } }
+
+  /* the captures (?capture): the device alone, the whole window */
+  body.capture { overflow: hidden; }
+  body.capture .topbar, body.capture .dock, body.capture .side, body.capture #realistic > :not(.device) { display: none !important; }
+  body.capture .work, body.capture .stage-col, body.capture .stage { display: block; padding: 0; margin: 0; }
+  body.capture #realistic { position: static; margin: 0; }
+  body.capture .device { position: fixed; inset: 0; width: 100vw; height: 100vh; aspect-ratio: auto; border-radius: 0; }
+  body.capture .device::after { display: none; }
 </style>
 </head>
 <body>
-<main>
-  <div>
+<header class="topbar">
+  <div class="bar glass">
+    <a class="back" href="https://destbreso.github.io/desk-sage/" title="Back to Sage on the desk"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"/></svg>Back</a>
+    <span class="sep"></span>
     <h1>Desk emulator</h1>
-    <p class="sub">The board in a page: it plays the .bin as the firmware does and talks to the bridge in the board's own line protocol.</p>
+    <span class="sep"></span>
+    <div class="modes" role="group" aria-label="How the board is shown">
+      <button type="button" data-mode="simple" aria-pressed="true">Simple</button>
+      <button type="button" data-mode="realistic" aria-pressed="false">Realistic</button>
+    </div>
+    <span class="sep"></span>
     <div class="status" aria-live="polite"><span id="link" class="off">no bridge</span><span id="art" class="off">no art</span></div>
-    <div class="bar">
-      <div class="modes" role="group" aria-label="How the board is shown">
-        <button type="button" data-mode="simple" aria-pressed="true">Simple</button>
-        <button type="button" data-mode="realistic" aria-pressed="false">Realistic</button>
+  </div>
+  <div class="bar glass end">
+    <button type="button" id="linkbtn">Disconnect the bridge</button>
+    <a class="out" href="https://github.com/destbreso/desk-sage" target="_blank" rel="noopener" title="The source on GitHub, in a new tab">Source<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17 17 7M8 7h9v9"/></svg></a>
+  </div>
+</header>
+<main class="work">
+  <div class="stage-col">
+    <div class="stage">
+      <div id="simple">
+        <div class="front" id="front" tabindex="0" role="button" aria-label="The board seen from the front. Click or press Enter to tap it.">
+          <canvas id="lcd" width="240" height="240"></canvas>
+          <div class="sheen"></div>
+        </div>
+        <p class="tip">A click is a tap.</p>
       </div>
-      <button type="button" id="linkbtn">Disconnect the bridge</button>
-    </div>
-    <p class="linkline" id="linkline"><span id="linktext"></span><button type="button" id="skip" hidden title="Moves the board's clock ahead by the time left. The board itself always waits.">Skip the wait</button></p>
-    <div class="stage" id="simple">
-      <div class="front" id="front" tabindex="0" role="button" aria-label="The board seen from the front. Click or press Enter to tap it.">
-        <canvas id="lcd" width="240" height="240"></canvas>
-        <div class="sheen"></div>
+      <div class="device-wrap" id="realistic" hidden>
+        <div class="device" id="device" tabindex="0" aria-label="The device in 3D. Drag to turn it, scroll or pinch to zoom. A click on it, or Enter, taps the glass."></div>
+        <p class="device-note" id="device-note">Drawing the device...</p>
+        <button type="button" class="reset" id="home">Reset view</button>
+        <p class="tip">Drag to turn it, scroll to zoom. A click is a tap.</p>
       </div>
-      <p class="hint">A click is a tap.</p>
     </div>
-    <div class="device-wrap" id="realistic" hidden>
-      <div class="device" id="device" tabindex="0" aria-label="The device in 3D. Drag to turn it, scroll or pinch to zoom. A click on it, or Enter, taps the glass."></div>
-      <p class="device-note" id="device-note">Drawing the device...</p>
-      <button type="button" class="reset" id="home">Reset view</button>
-      <p class="hint">Drag to turn it, scroll to zoom. A click is a tap.</p>
+    <div class="dock glass">
+      <p class="linkline" id="linkline"><span id="linktext"></span><button type="button" id="skip" hidden title="Moves the board's clock ahead by the time left. The board itself always waits.">Skip the wait</button></p>
     </div>
   </div>
-  <div>
+  <div class="side">
     <section>
-      <h2>The board</h2>
+      <h2>The board <small>ESP32-S3, 240 x 240</small></h2>
+      <p class="lead">It plays the .bin as the firmware does and talks to the bridge in the board's own line protocol.</p>
       <dl id="readouts"></dl>
       <ul class="problems" id="problems" hidden></ul>
     </section>
@@ -155,7 +236,7 @@
     </section>
   </div>
 </main>
-<!-- three.js only for Realistic, imported when it is first shown: Simple needs nothing from outside -->
+<!-- three.js only for Realistic, imported when it is first shown: Simple needs nothing from outside but the font -->
 <script type="importmap">
 { "imports": {
   "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
