@@ -42,9 +42,11 @@ out = [
     "",
     "### The hardware",
     "",
-    f'<p align="center"><img src="{src("gallery/hardware/taken-apart.gif")}" width="320" alt="The device taken apart level by level and put back together"></p>',
+    f'<p align="center"><img src="{src("gallery/hardware/taken-apart.gif")}" width="320" alt="The device taken apart level by level and put back together"> <img src="{src("gallery/hardware/live.gif")}" width="320" alt="The device turning slowly, with Sage alive inside the prism"></p>',
     "",
-    "This comes from [hardware/index.html](hardware/index.html). Open it in any browser from a clone of this repository. You can drag it around, step through the levels or play the whole assembly, and tap any part to see what it is and where its facts come from.",
+    "The one on the left comes from [hardware/index.html](hardware/index.html). Open it in any browser from a clone of this repository. You can drag it around, step through the levels or play the whole assembly, and tap any part to see what it is and where its facts come from.",
+    "",
+    "The one on the right is the emulator in its Realistic mode. Sage plays in the prism exactly as the board will draw it, and you can turn it and tap it ([how to run it](emulator/README.md)).",
     "",
 ]
 text = (root / "README.md").read_text()

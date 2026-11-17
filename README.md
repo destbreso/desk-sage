@@ -35,9 +35,11 @@ It has many more. Every one of them is in [gallery/sage/](gallery/sage/).
 
 ### The hardware
 
-<p align="center"><img src="gallery/hardware/taken-apart.gif?v=c4363db4" width="320" alt="The device taken apart level by level and put back together"></p>
+<p align="center"><img src="gallery/hardware/taken-apart.gif?v=c4363db4" width="320" alt="The device taken apart level by level and put back together"> <img src="gallery/hardware/live.gif?v=176861f8" width="320" alt="The device turning slowly, with Sage alive inside the prism"></p>
 
-This comes from [hardware/index.html](hardware/index.html). Open it in any browser from a clone of this repository. You can drag it around, step through the levels or play the whole assembly, and tap any part to see what it is and where its facts come from.
+The one on the left comes from [hardware/index.html](hardware/index.html). Open it in any browser from a clone of this repository. You can drag it around, step through the levels or play the whole assembly, and tap any part to see what it is and where its facts come from.
+
+The one on the right is the emulator in its Realistic mode. Sage plays in the prism exactly as the board will draw it, and you can turn it and tap it ([how to run it](emulator/README.md)).
 
 ## Roadmap
 
