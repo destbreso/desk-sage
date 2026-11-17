@@ -1,4 +1,4 @@
-"""Put Lump on your Wi-Fi.
+"""Put the board on your Wi-Fi.
 
 Run it yourself with the board plugged into the Mac by USB (data cable):
     ~/.desk-buddy/venv/bin/python tools/wifi_setup.py          # set up / change network
@@ -6,7 +6,7 @@ Run it yourself with the board plugged into the Mac by USB (data cable):
 
 It asks for the network name and password (the password isn't shown, logged or saved on the Mac:
 it goes straight over USB into the board's own flash), makes a pairing token so only your
-bridge can drive him over the network, and tells him your time zone so he can keep time from
+bridge can drive it over the network, and tells it your time zone so it can keep time from
 the internet. The token goes into ~/.desk-buddy/config.json for the bridge.
 The ESP32 only does 2.4 GHz Wi-Fi.
 """
@@ -60,7 +60,7 @@ def main():
     forget = "--forget" in sys.argv
     ports = sorted(glob.glob("/dev/cu.usbmodem*"))
     if not ports:
-        sys.exit("Lump isn't plugged in by USB (needs a data cable).")
+        sys.exit("The board isn't plugged in by USB (needs a data cable).")
     cfg = {}
     if os.path.exists(CONFIG):
         with open(CONFIG) as f:
@@ -76,7 +76,7 @@ def main():
         password = getpass.getpass(f"Password for {ssid} (not shown): ")
         if "\t" in ssid + password or "\n" in ssid + password:
             sys.exit("Tabs and newlines can't be sent; sorry.")
-        token = cfg.get("lump_token") or secrets.token_hex(12)
+        token = cfg.get("board_token") or secrets.token_hex(12)
         tz = posix_tz()
         line = f"w {ssid}\t{password}\t{token}\t{tz}"
 
@@ -87,17 +87,17 @@ def main():
         ser = serial.Serial(); ser.port, ser.baudrate, ser.timeout = ports[0], 115200, 0.3
         ser.dtr = False; ser.rts = False
         ser.open()
-        read_lines(ser, "lump ready", 4)          # opening the port may restart him: let him boot
+        read_lines(ser, "sage ready", 4)          # opening the port may restart it: let it boot
         ser.reset_input_buffer()
         ser.write((line + "\n").encode()); ser.flush()
         del line                                    # don't keep the password around
         if not read_lines(ser, "restarting", 5):
             sys.exit("The board didn't confirm. Is the new firmware flashed (tools/flash.sh)?")
         if forget:
-            cfg.pop("lump_token", None)
+            cfg.pop("board_token", None)
         else:
-            cfg["lump_token"] = token
-            cfg.setdefault("lump_host", "lump.local")
+            cfg["board_token"] = token
+            cfg.setdefault("board_host", "sage.local")
             os.makedirs(HOME, exist_ok=True)
         with open(CONFIG + ".tmp", "w") as f:
             json.dump(cfg, f, indent=2)
@@ -105,7 +105,7 @@ def main():
         if forget:
             print("Wi-Fi forgotten.")
             return
-        read_lines(ser, "lump ready", 8)
+        read_lines(ser, "sage ready", 8)
         print("Joining the network...")
         status = None
         for _ in range(20):
@@ -116,10 +116,10 @@ def main():
             time.sleep(1)
         ser.close()
         if status and "wifi=connected" in status:
-            print("\nLump is on Wi-Fi. Unplug him from the Mac and power him from any USB charger:")
-            print("the bridge will find him at lump.local within a few seconds.")
+            print("\nThe board is on Wi-Fi. Unplug it from the Mac and power it from any USB charger:")
+            print("the bridge will find it at sage.local within a few seconds.")
         else:
-            print("\nHe saved the details but hasn't joined yet. Check the network name and password")
+            print("\nIt saved the details but hasn't joined yet. Check the network name and password")
             print("(and that it's a 2.4 GHz network), then run this again.")
     finally:
         subprocess.run(["launchctl", "bootstrap", f"gui/{os.getuid()}", BRIDGE_PLIST], capture_output=True)

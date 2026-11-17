@@ -1,7 +1,7 @@
-"""Update Lump over Wi-Fi: his program, his drawings, or both. Sends only what changed.
+"""Update the board over Wi-Fi: its program, Sage's drawings, or both. Sends only what changed.
 
     ~/.desk-buddy/venv/bin/python tools/ota.py            # build, then send whatever differs
-    ~/.desk-buddy/venv/bin/python tools/ota.py --art      # just the drawings (firmware/data/lump.bin)
+    ~/.desk-buddy/venv/bin/python tools/ota.py --art      # just the drawings (firmware/data/sage.bin)
     ~/.desk-buddy/venv/bin/python tools/ota.py --app      # just the program (builds it first)
     options: --force (send even if unchanged)  --no-build  --host <name or IP>
 
@@ -14,7 +14,7 @@ import argparse, hashlib, json, os, socket, subprocess, sys, time, urllib.error,
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 APP = os.path.join(ROOT, "firmware", ".pio", "build", "buddy", "firmware.bin")
-ART = os.path.join(ROOT, "firmware", "data", "lump.bin")
+ART = os.path.join(ROOT, "firmware", "data", "sage.bin")
 CONFIG = os.path.expanduser("~/.desk-buddy/config.json")
 
 
@@ -24,7 +24,7 @@ def resolve(host):
 
 
 def request(ip, token, path, data=None, headers=None, timeout=10):
-    h = {"X-Lump-Token": token, **(headers or {})}
+    h = {"X-Sage-Token": token, **(headers or {})}
     req = urllib.request.Request(f"http://{ip}{path}", data=data, headers=h, method="POST" if data is not None else "GET")
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
@@ -36,14 +36,14 @@ def request(ip, token, path, data=None, headers=None, timeout=10):
 def info(ip, token, app_len, art_len, timeout=20):
     st, body = request(ip, token, f"/info?app_len={app_len}&art_len={art_len}", timeout=timeout)
     if st == 401:
-        sys.exit("Lump refused the pairing token: run tools/wifi_setup.py again.")
+        sys.exit("The board refused the pairing token: run tools/wifi_setup.py again.")
     if st != 200:
         sys.exit(f"/info failed ({st}): {body.strip()}")
     return json.loads(body)
 
 
 def wait_back(ip, token, secs=60):
-    """After a restart: wait until he answers again (and has rejoined Wi-Fi)."""
+    """After a restart: wait until it answers again (and has rejoined Wi-Fi)."""
     end = time.time() + secs
     time.sleep(3)
     while time.time() < end:
@@ -51,7 +51,7 @@ def wait_back(ip, token, secs=60):
             return info(ip, token, 0, 0, timeout=3)
         except (OSError, urllib.error.URLError):
             time.sleep(1.5)
-    sys.exit("He didn't come back on Wi-Fi within a minute. Check the glass; a cable flash (tools/flash.sh) can recover him.")
+    sys.exit("It didn't come back on Wi-Fi within a minute. Check the glass; a cable flash (tools/flash.sh) can recover it.")
 
 
 def send(ip, token, kind, path, extra):
@@ -60,10 +60,10 @@ def send(ip, token, kind, path, extra):
     print(f"sending {kind}: {os.path.relpath(path, ROOT)} ({mb:.1f} MB)...", flush=True)
     t = time.time()
     st, body = request(ip, token, f"/update/{kind}", data=data, timeout=600,
-                       headers={"Content-Type": "application/octet-stream", "X-Lump-Size": str(len(data)), **extra})
+                       headers={"Content-Type": "application/octet-stream", "X-Sage-Size": str(len(data)), **extra})
     if st != 200:
         sys.exit(f"{kind} update failed ({st}): {body.strip()}")
-    print(f"  done in {time.time() - t:.0f} s ({mb * 8 / max(time.time() - t, 0.1):.1f} Mbit/s); he's restarting", flush=True)
+    print(f"  done in {time.time() - t:.0f} s ({mb * 8 / max(time.time() - t, 0.1):.1f} Mbit/s); it's restarting", flush=True)
 
 
 def main():
@@ -72,15 +72,15 @@ def main():
     ap.add_argument("--art", action="store_true", help="only the drawings")
     ap.add_argument("--force", action="store_true", help="send even if the board already has it")
     ap.add_argument("--no-build", action="store_true", help="don't run pio before sending the program")
-    ap.add_argument("--host", help="board address (default: lump_host from config.json, else lump.local)")
+    ap.add_argument("--host", help="board address (default: board_host from config.json, else sage.local)")
     a = ap.parse_args()
     want_app, want_art = (a.app or not a.art), (a.art or not a.app)
 
     cfg = json.load(open(CONFIG)) if os.path.exists(CONFIG) else {}
-    token = cfg.get("lump_token")
+    token = cfg.get("board_token")
     if not token:
         sys.exit("No pairing token in ~/.desk-buddy/config.json: run tools/wifi_setup.py first (needs the USB cable once).")
-    host = a.host or cfg.get("lump_host") or "lump.local"
+    host = a.host or cfg.get("board_host") or "sage.local"
 
     if want_app and not a.no_build:
         print("building...", flush=True)
@@ -95,21 +95,21 @@ def main():
     app = open(APP, "rb").read() if want_app else b""
     art = open(ART, "rb").read() if want_art else b""
     have = info(ip, token, len(app), len(art), timeout=30)       # hashing ~10 MB of flash takes a moment
-    print(f"Lump at {ip}: running {have.get('running')}, drawings {'ok' if have.get('art_ok') else 'MISSING/BAD'}")
+    print(f"Board at {ip}: running {have.get('running')}, drawings {'ok' if have.get('art_ok') else 'MISSING/BAD'}")
 
     todo = []
     if want_art:
         if len(art) > have.get("art_room", 0):
-            sys.exit(f"lump.bin is {len(art)} bytes but the art partition holds {have.get('art_room')}")
+            sys.exit(f"sage.bin is {len(art)} bytes but the art partition holds {have.get('art_room')}")
         if a.force or hashlib.sha256(art).hexdigest() != have.get("art_sha"):
-            todo.append(("art", ART, {"X-Lump-Sha256": hashlib.sha256(art).hexdigest()}))
+            todo.append(("art", ART, {"X-Sage-Sha256": hashlib.sha256(art).hexdigest()}))
         else:
             print("drawings: already up to date")
     if want_app:
         if len(app) > have.get("app_room", 0):
             sys.exit(f"firmware.bin is {len(app)} bytes but a program slot holds {have.get('app_room')}")
         if a.force or hashlib.sha256(app).hexdigest() != have.get("app_sha"):
-            todo.append(("app", APP, {"X-Lump-MD5": hashlib.md5(app).hexdigest()}))
+            todo.append(("app", APP, {"X-Sage-MD5": hashlib.md5(app).hexdigest()}))
         else:
             print("program: already up to date")
 
@@ -118,7 +118,7 @@ def main():
         back = wait_back(ip, token)
         print(f"  back: running {back.get('running')}, drawings {'ok' if back.get('art_ok') else 'MISSING/BAD'}")
     if todo:
-        print("Lump is up to date.")
+        print("The board is up to date.")
 
 
 if __name__ == "__main__":

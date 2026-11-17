@@ -1,6 +1,6 @@
-"""Bake Lump's browser animation into a binary the firmware plays back.
+"""Bake Sage's browser animation into a binary the firmware plays back.
 
-    python3 tools/export_frames.py --bake                 # headless Chrome: writes firmware/data/lump.bin
+    python3 tools/export_frames.py --bake                 # headless Chrome: writes firmware/data/sage.bin
     python3 tools/export_frames.py --clip encore          # just the sequences named encore / encore_*,
                                                           # as ~/.desk-buddy/clips/encore.clip (sent over Wi-Fi).
                                                           # design/clips/encore.js, if there is one, is loaded
@@ -32,10 +32,10 @@ firmware/src/glyphs.h) when that reproduces it; and as pixels otherwise. Then ea
 smaller, most of them right after a keyframe whose bytes they reach back into; tools/pack_check.cpp inflates every
 compressed frame back with that same code, and one that does not come back byte for byte is stored as it is.
 
-lump.bin layout (little-endian), version 7 (the board also reads 3 to 6: 6 has no compressed frames, 3 to 5 no atlas):
-  "LUMP" u16 version=7  u16 nFrames  u8 nMoods  u8 fps
+sage.bin layout (little-endian), version 7 (the board also reads 3 to 6: 6 has no compressed frames, 3 to 5 no atlas):
+  "SAGE" u16 version=7  u16 nFrames  u8 nMoods  u8 fps   (the board also reads "LUMP", what the bake wrote before)
   per mood:      u8 base mood index, u8 nameLen, name
-  u16 nSeqs (at most 750 in lump.bin: the board keeps room for that many; a u8 before version 5)
+  u16 nSeqs (at most 750 in sage.bin: the board keeps room for that many; a u8 before version 5)
   per sequence:  u8 kind (0 loop, 1 transition, 2 event), u8 from, u8 to,
                  u8 nameLen, name, u16 length, u16 frame index per tick
   glyph atlas:   u16 nGlyphs (at most 256), u32 size (bytes of the records), u32 at[nGlyphs] (where each
@@ -62,14 +62,14 @@ from urllib.parse import urlparse, parse_qs
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DESIGN = os.path.join(ROOT, "design")
-PAGE = os.path.join(DESIGN, "lump.html")          # the page baked from (--page names another)
-OUT = os.path.join(ROOT, "firmware", "data", "lump.bin")
+PAGE = os.path.join(DESIGN, "sage.html")          # the page baked from (--page names another)
+OUT = os.path.join(ROOT, "firmware", "data", "sage.bin")
 KIT = os.path.join(DESIGN, "clip_kit.js")          # props and helpers every clip script may use
 CLIPS = os.path.expanduser("~/.desk-buddy/clips")
 CHROME = os.environ.get("CHROME") or next((p for p in ("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", shutil.which("google-chrome"),
                                                         shutil.which("chromium")) if p and os.path.exists(p)), "google-chrome")
 PIXELS = 240 * 240 * 4
-MAX_SEQS = 750                    # sequences the board has room for in lump.bin (MAX_SEQ in firmware/src/main.cpp)
+MAX_SEQS = 750                    # sequences the board has room for in sage.bin (MAX_SEQ in firmware/src/main.cpp)
 MAX_MEAN, MAX_FAR = 2.0, 300      # an instruction frame may differ from the browser's by this much: mean % of full
                                   # scale, and pixels more than a quarter of full scale apart (thin edge fringes)
 
@@ -87,7 +87,7 @@ clip_name = None   # the clip being baked, if it is one
 EXPORT_JS = r"""
 (async () => {
   // Body colour is exported as pure magenta, a marker the firmware swaps for the real colour
-  // at runtime (so his colour can change on the fly).
+  // at runtime (so the body colour can change on the fly).
   const cfg = window.__lumpExport || {};
   const TINT = cfg.tint || '#FF00FF';
   const L = window.__lump, cv = document.createElement('canvas'); cv.width = cv.height = 240;
@@ -271,7 +271,7 @@ def encode(calls):
 def native(name, header, *more):
     """tools/<name>.cpp built with the firmware's own firmware/src/<header> (and tools/ for what only the Mac needs,
     such as tinfl.h), rebuilt when any of them changes."""
-    exe = os.path.join(tempfile.gettempdir(), "lump_" + name)
+    exe = os.path.join(tempfile.gettempdir(), "desk_" + name)
     src = os.path.join(ROOT, "tools", name + ".cpp"); hdr = os.path.join(ROOT, "firmware", "src", header)
     deps = [src, hdr] + [os.path.join(ROOT, "tools", m) for m in more]
     if not os.path.exists(exe) or os.path.getmtime(exe) < max(map(os.path.getmtime, deps)):
@@ -475,10 +475,10 @@ def lint(name, pics, calls, stuck, shows, size):
         framed = lambda f: any(c[0] == "scale" for c in calls[f][:17])      # seen through kit.view: the edges are meant to be crossed
         cut = sorted(d for d, frames in shows.items() if d.startswith(name + "_") and any(not framed(f) and sum(lit(pics[f], x, y) for x, y in cells) > 10 for f in frames))
         if cut: notes.append(f"Something bright touches the {side} edge in {', '.join(cut[:10])}{' and more' if len(cut) > 10 else ''}. "
-                             "Fine for a setting or a slide in or out; anywhere else a prop or a Lump is cut off.")
+                             "Fine for a setting or a slide in or out; anywhere else a prop or the character is cut off.")
     if stuck: notes.append(f"Stored as pixels: {', '.join(stuck[:8])}. Look for a NaN or undefined coordinate, a call the board can't draw, "
                            "a translucent full-screen fill, or a scale that isn't a whole number of 256ths.")
-    if size > 150000: notes.append(f"{size} bytes: over 150000 he takes longer to send and crowds the board's memory. Reuse drawings or simplify props.")
+    if size > 150000: notes.append(f"{size} bytes: over 150000 it takes longer to send and crowds the board's memory. Reuse drawings or simplify props.")
     return notes
 
 
@@ -543,7 +543,7 @@ def build():
         worst = (max(worst[0], mean), max(worst[1], far))
         why["instructions"] += 1; blobs.append((2, struct.pack("<H", len(v)) + v))
     stored, packing = pack(blobs)
-    out = bytearray(b"LUMP") + struct.pack("<HHBB", 7, len(stored), len(moods), 24)
+    out = bytearray(b"SAGE") + struct.pack("<HHBB", 7, len(stored), len(moods), 24)
     for m in meta["moments"]:
         out += bytes([m["base"]]) + pstr(m["name"])
     out += struct.pack("<H", len(meta["seqs"])) + body + atlas
@@ -665,7 +665,7 @@ def headless(config, scripts=()):
     s = socket.socket(); s.bind(("127.0.0.1", 0)); port = s.getsockname()[1]; s.close()
     srv = http.server.ThreadingHTTPServer(("127.0.0.1", port), H)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
-    profile = tempfile.mkdtemp(prefix="lump-export-")
+    profile = tempfile.mkdtemp(prefix="sage-export-")
     chrome = subprocess.Popen([CHROME, "--headless=new", "--disable-gpu", *(["--no-sandbox"] if sys.platform == "linux" else []), "--no-first-run", "--no-default-browser-check",
                                f"--user-data-dir={profile}", f"http://127.0.0.1:{port}/"],
                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -679,13 +679,13 @@ def headless(config, scripts=()):
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("port", nargs="?", type=int, default=8765, help="serve design/ here (when not baking headless)")
-    ap.add_argument("--bake", action="store_true", help="bake everything into firmware/data/lump.bin with headless Chrome")
+    ap.add_argument("--bake", action="store_true", help="bake everything into firmware/data/sage.bin with headless Chrome")
     ap.add_argument("--clip", metavar="NAME", help="bake only the sequences called NAME or NAME_*, as a clip ('all': every design/clips/*.js)")
     ap.add_argument("--sheet", metavar="PNG", help="with --clip: save its drawings as one picture instead of baking")
     ap.add_argument("--gif", metavar="GIF", help="with --clip: save it as an animated GIF instead of baking")
     ap.add_argument("--define", metavar="JSON", help="a file of extra sequences made from existing drawings")
-    ap.add_argument("--out", help="where to write (default: lump.bin, or ~/.desk-buddy/clips/NAME.clip)")
-    ap.add_argument("--page", help="the page to bake from, with the same interface (default: design/lump.html)")
+    ap.add_argument("--out", help="where to write (default: sage.bin, or ~/.desk-buddy/clips/NAME.clip)")
+    ap.add_argument("--page", help="the page to bake from, with the same interface (default: design/sage.html)")
     ap.add_argument("--refs", metavar="FILE", help="also save the browser's picture of every glyph frame (for emulator/checks/glyph_fidelity.mjs)")
     args = ap.parse_args()
     if args.page: PAGE = os.path.abspath(args.page)

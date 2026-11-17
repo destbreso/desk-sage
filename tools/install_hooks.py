@@ -1,12 +1,12 @@
-"""Hook Claude Code up to Lump.
+"""Hook Claude Code up to Sage.
 
     python3 tools/install_hooks.py                      # ~/.claude/settings.json
     python3 tools/install_hooks.py --config-dir ~/.claude-work   # a second Claude Code config
     python3 tools/install_hooks.py --uninstall
 
-Adds one small async hook per Claude Code event that matters to Lump. Each hook POSTs the event's
+Adds one small async hook per Claude Code event that matters to Sage. Each hook POSTs the event's
 JSON to the bridge on 127.0.0.1:47823 and never blocks or fails Claude Code. It also installs the
-status line (tools/statusline.sh, which feeds your usage limits to his colour) unless you already
+status line (tools/statusline.sh, which feeds your usage limits to its battery) unless you already
 have a status line of your own. Running it again changes nothing; settings.json is backed up first.
 """
 import argparse, json, os, shutil, sys, time
@@ -29,7 +29,7 @@ def ours(group):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--config-dir", default="~/.claude", help="Claude Code config folder (default ~/.claude)")
-    ap.add_argument("--uninstall", action="store_true", help="remove Lump's hooks and status line")
+    ap.add_argument("--uninstall", action="store_true", help="remove the bridge's hooks and status line")
     args = ap.parse_args()
 
     path = os.path.join(os.path.expanduser(args.config_dir), "settings.json")
@@ -70,7 +70,7 @@ def main():
             settings["statusLine"] = {"type": "command", "command": status_cmd}; changed.append("statusLine")
         elif line.get("command") != status_cmd:
             print(f"You already have a status line ({line.get('command')}), so it was left alone.\n"
-                  f"Lump's usage colour needs {status_cmd} to see the status line JSON: call it from yours.")
+                  f"Sage's battery (your usage) needs {status_cmd} to see the status line JSON: call it from yours.")
 
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as f:
