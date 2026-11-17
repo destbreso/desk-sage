@@ -1,6 +1,6 @@
 # Sage on the desk
 
-Sage is the robot that lives on [destbreso.com](https://destbreso.com). This project gives it a body on my desk.
+Sage is the robot that lives on [destbreso.com](https://destbreso.com). This project gives it a body on my desk. You can [try it live](https://destbreso.github.io/desk-sage/) in your browser, and the whole story of how I built it is [on my site](https://destbreso.com/projects/desk-sage).
 
 It lives in a small glass prism display. On the prism, black turns into glass, so its cream shell and green eyes look like they're floating in the air. It keeps me company while I work, and it reacts to what's happening on my computer, like Claude Code thinking or waiting for me, my tests passing or failing, or a push.
 
@@ -10,13 +10,16 @@ Here's what you'll find in this repository:
 - **The firmware** for the Waveshare ESP32-S3-LCD-1.3 prism. The board draws each frame itself from small drawing instructions, and the frames are compressed, so a lot of animation fits. It feels a tap through its motion sensor, and it can get new animations over Wi-Fi without being flashed again.
 - **The bridge** (`tools/buddy_bridge.py`) runs on my Mac. It listens to Claude Code and to what the terminal runs, and talks to the board over USB or Wi-Fi. Next to it runs **Sage's mind** (`mind/`), which decides what Sage does. The mind only hears what kind of thing happened, never what I typed or ran.
 - **The emulator** (`emulator/`) is a web page that plays the frames exactly like the board does. It plugs into the bridge as if it were the board, so I can build and try everything before the hardware is on my desk.
+- **How a moment reaches the glass** ([docs/figures/flow.html](docs/figures/flow.html)) is an interactive figure. It simulates a quarter of an hour of my work, from a Claude Code hook all the way to the board.
 - **How to build one** ([docs/BUILD.md](docs/BUILD.md)) tells you what to buy, where to get it and what it costs. The device itself is about US$27.
 - **The hardware** ([hardware/index.html](hardware/index.html)) shows the board, its display and the prism in 3D at their real size. You can turn it around, take it apart down to the smallest piece and put it back together.
 - **The tools** bake the drawings into frames, check every frame against the browser's own drawing, update the board over the air and print the stand.
 
 ## Quick start
 
-You don't need the board to see Sage. Pick how far you want to go.
+You don't need the board to see Sage. The quickest way is the live version at [destbreso.github.io/desk-sage](https://destbreso.github.io/desk-sage/). It's this repository served as it is, so the device in 3D, the bare board, the hardware taken apart and every act all run in your browser.
+
+Or, from a clone of this repository, pick how far you want to go.
 
 ### Just look at it
 
@@ -24,6 +27,7 @@ Nothing to install. Open these two files in your browser, straight from a clone 
 
 - `design/sage.html` plays every mood and act Sage has. Click one to watch it.
 - `hardware/index.html` shows the device in 3D at its real size. Drag it around, take it apart level by level, and click any part to see what it is.
+- `docs/figures/flow.html` runs a quarter of an hour of my work, from a hook to the board. Put the Mac to sleep and watch what happens.
 
 ### Watch it play like the board
 
@@ -100,6 +104,7 @@ The one on the right is the emulator in its Realistic mode. Sage plays in the pr
 - [x] Its antenna going dark when it can't hear my Mac
 - [x] The real firmware running in a simulated ESP32-S3, so it's tested before the board arrives
 - [x] The emulator showing the whole device in 3D, with Sage alive in its prism, and a switch to cut the bridge and bring it back
+- [x] All of it live in the browser, with nothing to install
 - [ ] Its own voice, played on the Mac
 - [ ] More of my day as its senses: subagents, renders, permissions waiting on me, the site going live, me stepping away
 - [ ] Holograms that show the real numbers, like the time, my tests and its battery
