@@ -27,6 +27,8 @@ export class Canvas {
     this.clips = Array.from({ length: MAX_CLIPS }, () => new Uint8Array(W * H));
     this.recolour = null;                                      // called on every colour as it is set
     this.overflow = false;
+    this.anchored = false;                                     // the last frame marked where the antenna's ball is (instruction 28),
+    this.anchorX = 0; this.anchorY = 0; this.anchorR = 0;      // at these, in 1/16 px of the screen (not through the transform)
     this.st = new State(); this.stack = []; this.sp = 0; this.clipTop = 0;
     this.pts = []; this.subs = []; this.nPts = 0; this.nSubs = 0;
     this.open = false; this.pending = false; this.pendingAt = { x: 0, y: 0 };
@@ -35,7 +37,7 @@ export class Canvas {
 
   // ---- one frame: buf[start .. start+len) ----
   play(buf, start, len) {
-    this.st = new State(); this.sp = 0; this.clipTop = 0; this.overflow = false; this.beginPath();
+    this.st = new State(); this.sp = 0; this.clipTop = 0; this.overflow = false; this.anchored = false; this.beginPath();
     let p = start;
     const end = start + len, st = () => this.st;
     const s16 = () => { const v = ((buf[p] | (buf[p + 1] << 8)) << 16) >> 16; p += 2; return v; };
@@ -73,6 +75,8 @@ export class Canvas {
         case 25: { const x = px(), y = px(), w = px(), h = px(), r = px(); this.roundRect(x, y, w, h, r); break; }
         case 26: this.st.dashOff = px(); break;
         case 27: this.clip(true); break;
+        case 28: if (end - p < 6) { this.overflow = true; return; }    // a mark, not a drawing: the board draws over it (antenna.mjs)
+                 this.anchorX = s16(); this.anchorY = s16(); this.anchorR = s16(); this.anchored = true; break;
         default: this.overflow = true; return;                // unknown instruction: stop rather than misread the rest
       }
     }

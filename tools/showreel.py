@@ -19,7 +19,7 @@ MOODS = ["idle", "working", "longhaul", "alert", "waiting", "done", "awake", "le
 def sequences(path):
     """(kind, name, seconds) for every sequence in a sage.bin or clip file."""
     d = open(path, "rb").read()
-    n_moods, fps = d[8], d[9]; p = 10
+    n_moods, fps = d[8], d[9]; p = 11 if d[4] >= 8 else 10   # version 8: a byte of flags
     for _ in range(n_moods): p += 2 + d[p + 1]
     wide = 2 if d[4] >= 5 else 1                     # version 5 on: a two-byte count
     out = []; count = int.from_bytes(d[p:p + wide], "little"); p += wide

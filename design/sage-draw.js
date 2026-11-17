@@ -52,6 +52,13 @@
       closePath() { if (start) at(...start); ctx.closePath(); },
       arc(x, y, r, a0, a1, ccw) { ctx.arc(x, y, r, a0, a1, ccw); at(x + r * Math.cos(a1), y + r * Math.sin(a1)); },
       roundRect(x, y, w, h, r) { ctx.roundRect(x, y, w, h, r); start = [x, y]; at(x, y); },
+      // where a round part is, in screen pixels, for the board to draw over: only the bake's recorder takes it, and
+      // only while some of it is on the screen (a canvas has no such call, so the page draws nothing)
+      anchor(x, y, r) {
+        if (typeof ctx.anchor !== "function") return;
+        const X = m[0] * x + m[2] * y + m[4], Y = m[1] * x + m[3] * y + m[5], R = r * Math.sqrt(Math.abs(m[0] * m[3] - m[1] * m[2]));
+        if (X + R > 0 && X - R < 240 && Y + R > 0 && Y - R < 240) ctx.anchor(X, Y, R);
+      },
       rect(x, y, w, h) { ctx.rect(x, y, w, h); start = [x, y]; at(x, y); },
       arcTo(x1, y1, x2, y2, r) {
         if (!cur) { api.moveTo(x1, y1); return; }
@@ -305,6 +312,8 @@
       const b = up + p.antennaBend, tx = base[0] + Math.sin(b) * L, ty = base[1] - Math.cos(b) * L, mx = base[0] + Math.sin(up + p.antennaBend * 0.35) * L * 0.55, my = base[1] - Math.cos(up + p.antennaBend * 0.35) * L * 0.55, kk = base[3];
       gg.lineCap = "round"; gg.strokeStyle = GRAPH[2]; gg.lineWidth = Math.max(1.5, 2.4 * kk); gg.beginPath(); gg.moveTo(base[0], base[1]); gg.quadraticCurveTo(mx, my, tx, ty); gg.stroke();
       gg.strokeStyle = GRAPH[5]; gg.lineWidth = Math.max(1, 0.7 * kk); gg.beginPath(); gg.moveTo(base[0] - 0.6 * kk, base[1]); gg.quadraticCurveTo(mx - 0.6 * kk, my, tx - 0.6 * kk, ty); gg.stroke();
+      // (the board draws `offline` and `relink` itself over the baked frames, at the ball this marks)
+      gg.anchor(tx, ty, 2.8 * kk);
       if (p.offline) {
         // no bridge: its antenna hears nothing, its ball dark; now and then a faint ring goes out, unanswered
         Sage3D.ball(gg, tx, ty, 2.8 * kk, DEAD, 0.35);
