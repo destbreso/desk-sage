@@ -47,7 +47,7 @@ This comes from [hardware/index.html](hardware/index.html). Open it in any brows
 - [x] Compressed frames, so all of it fits on the board
 - [x] Sage's mind next to the bridge, so it picks what to do, never repeats itself and has its own way of taking a tap
 - [x] What to buy and what it costs, and the hardware in 3D, taken apart
-- [ ] Its antenna going dark when it can't hear my Mac
+- [x] Its antenna going dark when it can't hear my Mac
 - [ ] Its own voice, played on the Mac
 - [ ] More of my day as its senses: subagents, renders, permissions waiting on me, the site going live, me stepping away
 - [ ] Holograms that show the real numbers, like the time, my tests and its battery
