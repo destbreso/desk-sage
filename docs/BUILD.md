@@ -30,9 +30,9 @@ A few things worth knowing before you order:
 
 - The -C comes assembled: the board in its case, the case in its stand. The prism cube stands on the display. There is nothing to solder.
 - The first install goes over the USB cable: `tools/flash.sh` builds the firmware with PlatformIO and writes it and the art with esptool. After that, `tools/ota.py` updates it over Wi-Fi (set up with `tools/wifi_setup.py`).
-- On the Mac, `tools/install_bridge.sh` installs the bridge as a login item and `tools/install_hooks.py` adds the Claude Code hooks it listens to.
+- On the Mac, `tools/install_bridge.sh` installs the bridge as a login item and `tools/install_hooks.py` adds the Claude Code hooks it listens to. Run the installer from the checkout the bridge should use: Sage's mind runs from there, and `~/.desk-buddy/config.json` is pointed at it, at its art and at Node. It installs no sounds: Sage's voice is not made yet, so the bridge is silent.
 
-What is not checked yet: the author has no board on the desk, so these steps are the engine's, and everything has been run only in the emulator. `tools/flash.sh` and `tools/ota.py` still look for the art as `firmware/data/lump.bin`, so for now the art file has to be copied to that name (`docs/ROADMAP.md`, Phase 6).
+What is not checked yet: the author has no board on the desk, so these steps are the engine's, and everything has been run only in the emulator. `tools/flash.sh` and `tools/ota.py` write the art, `firmware/data/sage.bin`, into the board's `sage` partition; neither has been run against a board.
 
 ## Where the facts come from
 
