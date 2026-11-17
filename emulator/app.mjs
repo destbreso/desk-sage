@@ -1,4 +1,4 @@
-// The page around the board: its two views (Simple, the flat prism; Realistic, the device in 3D), the click that
+// The page around the board: its two views (Simple, the bare board from the front; Realistic, the device in 3D), the click that
 // taps it, the readouts, the Serial box, and the link to the bridge. The link is the bridge's emulator transport:
 // the board's commands arrive as Server-Sent Events (events), what the board says goes back by POST (board), and
 // clips come as the board's POST /clip would bring them (an event named clip, answered on clip). Served by the bridge
@@ -9,6 +9,7 @@ import { Board, HOST_TIMEOUT_MS } from './board.mjs';
 import { W, H } from './vec.mjs';
 import { prepare, prepared } from './packed.mjs';
 import { attach, renderHelp } from './commands.mjs';
+import { drawFront } from './front.mjs';
 
 const CLICK_JOLT = 1.0;                  // g: a knock on the glass, well over the board's default threshold of 0.35
 const HEARTBEAT_EVERY_MS = 15000;        // tools/buddy_bridge.py's HEARTBEAT_EVERY, for the stand-in bridge
@@ -19,7 +20,8 @@ const CAPTURE = params.has('capture');   // the captures: the board's clock step
 // art.bin is the bridge's; from a static server at the repository's root, the committed art
 const artUrls = params.get('art') ? [params.get('art')] : ['art.bin', '../firmware/data/sage.bin'];
 
-const lcd = $('lcd').getContext('2d'), glow = $('glow').getContext('2d');
+const lcd = $('lcd').getContext('2d');
+drawFront($('front'), $('lcd'));
 const image = lcd.createImageData(W, H), px = new Uint32Array(image.data.buffer);
 let board, artName = '', page = 0, linked = false, replaced = false, events = null;
 let hasBridge = null;                    // null until known: true once the bridge said hello, false when there is none here
@@ -64,11 +66,10 @@ function present(fb) {
   shown();
 }
 function shown() {                       // a new picture on the canvas: each view takes it in its own way
-  if (mode === 'simple') glow.drawImage(lcd.canvas, 0, 0, 60, 60);
   if (device) device.pushed();
 }
 function backlight(level) {
-  $('screen').style.filter = `brightness(${(level / 255).toFixed(3)})`;
+  $('lcd').style.filter = `brightness(${(level / 255).toFixed(3)})`;
   if (device && level !== lastBacklight) device.backlight(level);
   lastBacklight = level;
 }
@@ -208,15 +209,15 @@ function setMode(m, remember = true) {
   $('realistic').hidden = mode !== 'realistic';
   document.querySelectorAll('.modes button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mode === mode)));
   if (mode === 'realistic') { if (device) device.show(); else loadDevice(); }
-  else { if (device) device.hide(); glow.drawImage(lcd.canvas, 0, 0, 60, 60); }
+  else if (device) device.hide();
 }
 document.querySelectorAll('.modes button').forEach(b => b.addEventListener('click', () => setMode(b.dataset.mode)));
 $('home').addEventListener('click', () => device && device.home());
 
 // ---- input ----
 function tap() { board.sample(CLICK_JOLT); }
-$('prism').addEventListener('pointerdown', e => { if (e.button === 0) tap(); });
-for (const id of ['prism', 'device'])
+$('front').addEventListener('pointerdown', e => { if (e.button === 0) tap(); });
+for (const id of ['front', 'device'])
   $(id).addEventListener('keydown', e => { if (e.target === $(id) && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); if (!e.repeat) tap(); } });
 const completion = attach({ input: $('line'), list: $('suggest'), board: () => board });
 $('cmd').addEventListener('submit', e => {

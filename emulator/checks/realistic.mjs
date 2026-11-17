@@ -260,7 +260,7 @@ try {
   await waitFor('the page', async () => (await state())?.ok, 20000);
   const afterSimple = (await state()).view;
   await sleep(1500);
-  await pageShot('Simple (the flat prism), same board', null);
+  await pageShot('Simple (the board from the front), same board', null);
   await press('.modes button[data-mode="realistic"]');
   await page.go(`${web.base}/emulator/`);
   await waitFor('the page', async () => (await state())?.ok, 20000);

@@ -56,6 +56,7 @@ The one on the right is the emulator in its Realistic mode. Sage plays in the pr
 - [ ] More of my day as its senses: subagents, renders, permissions waiting on me, the site going live, me stepping away
 - [ ] Holograms that show the real numbers, like the time, my tests and its battery
 - [ ] A gallery page with every animation and what sets it off
+- [ ] One `docker compose up` to try it with nothing installed, and the tools pinned so a bake gives the same frames on any machine
 - [ ] The board itself, flashed and measured, sitting on my desk
 
 The phases and the open questions are in [docs/ROADMAP.md](docs/ROADMAP.md). What's already done, and how it was checked, is in [docs/HISTORY.md](docs/HISTORY.md).

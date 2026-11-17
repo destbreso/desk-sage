@@ -73,8 +73,8 @@ try {
   await cdp.send('Page.navigate', { url: `${base}/emulator/` }, sid);
   const ev = async (expr) => (await cdp.send('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: true }, sid)).result.value;
   const state = () => ev('window.__emu ? window.__emu.state() : null');
-  const prism = await waitFor('the page', () => ev(`(() => { const r = document.getElementById('prism')?.getBoundingClientRect(); return r && { x: r.x + r.width / 2, y: r.y + r.height / 2 }; })()`));
-  const click = async () => { for (const type of ['mousePressed', 'mouseReleased']) await cdp.send('Input.dispatchMouseEvent', { type, x: prism.x, y: prism.y, button: 'left', clickCount: 1 }, sid); };
+  const front = await waitFor('the page', () => ev(`(() => { const r = document.getElementById('front')?.getBoundingClientRect(); return r && { x: r.x + r.width / 2, y: r.y + r.height / 2 }; })()`));
+  const click = async () => { for (const type of ['mousePressed', 'mouseReleased']) await cdp.send('Input.dispatchMouseEvent', { type, x: front.x, y: front.y, button: 'left', clickCount: 1 }, sid); };
   await waitFor('the link', async () => { const s = await state(); return s && s.linked && s.mode === 'direct'; });
   await waitFor('the mind', () => /mind: ready/.test(log()));
 

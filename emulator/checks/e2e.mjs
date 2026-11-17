@@ -1,5 +1,5 @@
 // The whole chain without hardware: the real bridge in emulator mode, the page in headless Chromium.
-// A hook posted as Claude Code posts it must change the page's mood; a click on the prism must reach
+// A hook posted as Claude Code posts it must change the page's mood; a click on the board must reach
 // the bridge as a tap (and the bridge's answer come back); a double click must be one tap; a clip the
 // bridge sends must play. Prints what it measured; with --sheet, also saves a small contact sheet.
 //
@@ -83,12 +83,12 @@ try {
   await cdp.send('Page.navigate', { url: `${base}/emulator/` }, sid);
   const ev = async expr => (await cdp.send('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: true }, sid)).result.value;
   const state = () => ev('window.__emu ? window.__emu.state() : null');
-  const prism = await waitFor('the page', () => ev(`(() => { const r = document.getElementById('prism')?.getBoundingClientRect(); return r && { x: r.x, y: r.y, w: r.width, h: r.height }; })()`));
+  const front = await waitFor('the page', () => ev(`(() => { const r = document.getElementById('front')?.getBoundingClientRect(); return r && { x: r.x, y: r.y, w: r.width, h: r.height }; })()`));
   const shots = [];
-  const shoot = async (label, clip = { x: prism.x, y: prism.y, width: prism.w, height: prism.h }) => {
+  const shoot = async (label, clip = { x: front.x, y: front.y, width: front.w, height: front.h }) => {
     if (SHEET) shots.push({ label, png: (await cdp.send('Page.captureScreenshot', { format: 'png', clip: { ...clip, scale: 1 } }, sid)).data });
   };
-  const click = async (x = prism.x + prism.w / 2, y = prism.y + prism.h / 2) => {
+  const click = async (x = front.x + front.w / 2, y = front.y + front.h / 2) => {
     for (const type of ['mousePressed', 'mouseReleased']) await cdp.send('Input.dispatchMouseEvent', { type, x, y, button: 'left', clickCount: 1 }, sid);
   };
 
