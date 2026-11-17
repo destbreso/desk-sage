@@ -157,7 +157,7 @@ export async function createDevice(host, { source, onTap, capture = false }) {
       const r = canvas.getBoundingClientRect(), q = p.clone().project(camera);
       return { x: r.left + ((q.x + 1) / 2) * r.width, y: r.top + ((1 - q.y) / 2) * r.height };
     },
-    stats: () => ({ fps, uploads, pixelRatio: renderer.getPixelRatio(), renderer: renderer.getContext().getParameter(renderer.getContext().VERSION) }),
+    stats: () => ({ fps, uploads, pixelRatio: renderer.getPixelRatio() }),
     // the display's picture turned back the right way round, for the checks: it must be the board's own pixels
     picture() {
       const c = document.createElement('canvas');
