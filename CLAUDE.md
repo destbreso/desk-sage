@@ -32,4 +32,5 @@ It is public, and it names no other project or repository of the author's: only 
 ## The author's machine
 
 - The bridge reads Claude Code's hooks, prompts and commands: it keeps them on the machine, never sends them anywhere, and logs no more than a reaction needs.
-- English in code, comments, logs and docs; no em or en dashes; one paragraph per line in markdown. Commits carry no AI co-author trailer. Commit locally; push only when the author asks.
+- English in code, comments, logs and docs; no em or en dashes; one paragraph per line in markdown.
+- The README and every caption in it speak as the author, plainly: first person, short sentences with one idea each, "you" for the reader, contractions welcome. Never chains of clauses, stacked asides or lists after a colon. Text an agent writes for it is read for that before it is merged. Commits carry no AI co-author trailer. Commit locally; push only when the author asks.
