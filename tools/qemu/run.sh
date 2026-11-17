@@ -6,6 +6,7 @@
 #     --wait                            with tcp:PORT, start the chip only once something connects (no boot line lost)
 #     --qmp PORT                        QEMU's control protocol on 127.0.0.1:PORT (screendump, stop, cont)
 #     --window                          show the virtual panel in a window (SDL)
+#     --snapshot                        leave the image as it was: what the firmware writes to flash (NVS) is dropped
 #     --no-build                        run the image already written
 # ART=path chooses the art written at 0x410000 (default firmware/data/sage.bin), ART=0 leaves the partition empty.
 # Apple Silicon only; needs Homebrew's pixman, libgcrypt and SDL2, which the release is linked against.
@@ -56,13 +57,14 @@ fetch
 libs
 if [ "${1:-}" = "image" ]; then image; exit; fi
 
-serial=stdio wait=off qmp= display=none build=1
+serial=stdio wait=off qmp= display=none build=1 snap=off
 while [ $# -gt 0 ]; do
   case "$1" in
     --serial) serial="$2"; shift ;;
     --wait) wait=on ;;
     --qmp) qmp="$2"; shift ;;
     --window) display=sdl ;;
+    --snapshot) snap=on ;;
     --no-build) build=0 ;;
     *) echo "unknown option $1 (see the top of tools/qemu/run.sh)"; exit 1 ;;
   esac
@@ -73,7 +75,7 @@ case "$serial" in
   tcp:*) serial="tcp:127.0.0.1:${serial#tcp:},server=on,wait=$wait" ;;
 esac
 args=(-machine esp32s3 -m 8M -global driver=ssi_psram,property=is_octal,value=true   # the board's 8 MB of octal PSRAM
-      -drive "file=$IMG,if=mtd,format=raw" -display "$display" -serial "$serial" -monitor none)
+      -drive "file=$IMG,if=mtd,format=raw,snapshot=$snap" -display "$display" -serial "$serial" -monitor none)
 [ -n "$qmp" ] && args+=(-qmp "tcp:127.0.0.1:$qmp,server=on,wait=off")
 # The release looks for SDL2 where Homebrew's sdl2-compat puts it; the older sdl2 formula is the same library.
 exec nice -n 19 env DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/opt/sdl2-compat/lib:/opt/homebrew/opt/sdl2/lib "$QEMU" "${args[@]}"
