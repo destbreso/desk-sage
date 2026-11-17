@@ -24,8 +24,6 @@ Almost two minutes of a typical session, from the moment it forms out of the rai
 
 <p align="center"><img src="gallery/session.gif?v=550563ed" width="320" alt="A typical session with Sage, from forming out of the rain to carrying on by itself"></p>
 
-**0:00** It forms out of the rain · **0:04** Waiting for something to happen · **0:07** A session starts: hello · **0:09** Claude works, and it reads · **0:16** The tests run, and two fail · **0:24** Back to work · **0:28** A commit gets a nod · **0:31** A build: its modules land on the pile · **0:38** A push: it sends a glider off · **0:45** Claude's done, and it loves it · **0:49** Something needs you · **0:51** You tap it: seen it · **0:54** A turn on the spot · **0:58** A knock: who's there? · **1:03** You tap a beat, and it dances · **1:08** The camera goes round, and it keeps you in sight · **1:16** Late at night, it shows you the time · **1:24** Asleep · **1:28** A tap in its sleep: it stirs · **1:32** Asleep again · **1:34** Morning · **1:34** The bridge is gone: it falls into the rain · **1:38** and forms again, on its own · **1:42** Living on its own until the bridge comes back
-
 ### A few of its moments
 
 <table>
