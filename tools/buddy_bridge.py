@@ -485,8 +485,10 @@ class Mind:
             self._trouble("no node to run it" if not node else f"{self.script} is missing")
             return self._later()
         try:
+            # its own session, so a Ctrl+C in the bridge's terminal reaches only the bridge, which stops it on purpose;
+            # if the bridge dies instead, the mind ends with its closed stdin
             proc = subprocess.Popen([node, self.script], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                    text=True, bufsize=1)
+                                    text=True, bufsize=1, start_new_session=True)
         except OSError as e:
             self._trouble(f"can't start it ({e})")
             return self._later()
@@ -2038,4 +2040,13 @@ if __name__ == "__main__":
     log.info("desk-buddy bridge listening on 127.0.0.1:%d", args.port)
     if hub:
         log.info("emulator: http://127.0.0.1:%d/emulator/ plays %s", args.port, hub.art)
-    http.server.ThreadingHTTPServer(("127.0.0.1", args.port), Handler).serve_forever()
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:                      # Ctrl+C in a terminal: a clean stop, not a traceback
+        print("", file=sys.stderr)
+        log.info("bridge stopped")
+    finally:
+        server.server_close()
+        if mind:
+            mind.stop()
