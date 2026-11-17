@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Desk emulator</title>
+<link rel="icon" href="data:,">
 <style>
   :root {
     color-scheme: dark;
@@ -11,6 +12,7 @@
     --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 var(--mono); }
   main { max-width: 1180px; margin: 0 auto; padding: 20px 16px 48px; display: grid; gap: 24px; grid-template-columns: minmax(0, 1fr); }
   @media (min-width: 960px) { main { grid-template-columns: minmax(0, 520px) minmax(0, 1fr); align-items: start; } }
@@ -35,6 +37,33 @@
   .stand { width: min(300px, calc(70vw)); height: 18px; border-radius: 0 0 10px 10px; background: linear-gradient(#16191e, #0b0c0f); box-shadow: 0 10px 20px -8px #000; }
   .hint { color: var(--muted); text-align: center; margin: 12px 0 0; max-width: 46ch; }
 
+  /* Simple or Realistic, and the link to the bridge: one board and one link behind both views */
+  .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 14px; }
+  .modes { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .modes button { border: 0; border-radius: 0; background: transparent; color: var(--muted); padding: 5px 14px; }
+  .modes button + button { border-left: 1px solid var(--line); }
+  .modes button:hover { color: var(--fg); }
+  .modes button[aria-pressed="true"] { background: #1f242b; color: var(--fg); box-shadow: inset 0 -2px 0 var(--accent); }
+  .modes button:focus-visible { outline-offset: -2px; }
+  #linkbtn { margin-left: auto; }
+  .linkline { color: var(--muted); font-size: 12.5px; margin: 8px 0 0; min-height: 1.5em; }
+  .linkline button { padding: 1px 10px; font-size: 12px; margin-left: 4px; }
+  .linkline b { color: var(--fg); font-weight: 500; font-variant-numeric: tabular-nums; }
+
+  /* Realistic: the device in 3D, the board's picture on its display */
+  .device-wrap { position: relative; margin-top: 16px; }
+  .device { position: relative; width: 100%; aspect-ratio: 1 / 1.06; border-radius: 8px; overflow: hidden; outline: none; touch-action: none; cursor: grab; background: var(--bg); }
+  .device:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
+  .device canvas { display: block; }
+  .device-wrap .reset { position: absolute; right: 10px; top: 10px; font-size: 12px; padding: 3px 10px; }
+  .device-note { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; color: var(--muted); padding: 24px; margin: 0; pointer-events: none; }
+  .device-note[hidden] { display: none; }
+  .device-wrap .hint { margin: 12px auto 0; }
+  body.capture main { display: block; max-width: none; padding: 0; }
+  body.capture main > div > :not(#realistic), body.capture main > div:last-child, body.capture #realistic > :not(.device) { display: none !important; }
+  body.capture #realistic { margin: 0; }
+  body.capture .device { width: 100vw; height: 100vh; aspect-ratio: auto; border-radius: 0; }
+
   section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; min-width: 0; }
   section + section { margin-top: 16px; }
   h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 0 0 10px; font-weight: 500; }
@@ -44,11 +73,31 @@
   .swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -1px; margin-right: 6px; border: 1px solid var(--line); }
   .problems { color: var(--warn); margin: 8px 0 0; padding-left: 18px; }
   form { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
-  input[type=text] { flex: 1 1 200px; min-width: 0; font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; }
+  .tools { display: flex; gap: 8px; flex-wrap: wrap; flex-basis: 100%; }
+  .combo { position: relative; flex: 1 1 200px; min-width: 0; display: flex; }
+  input[type=text] { flex: 1 1 auto; width: 100%; min-width: 0; font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; }
   button, label.button { font: inherit; color: var(--fg); background: #1f242b; border: 1px solid var(--line); border-radius: 6px; padding: 6px 12px; cursor: pointer; }
   button:hover, label.button:hover { border-color: var(--muted); }
   button:focus-visible, input:focus-visible, label.button:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
   label.button input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+  /* the board's commands: suggestions while typing, and the whole list on demand */
+  #suggest { position: absolute; left: 0; top: calc(100% + 4px); min-width: 100%; width: max-content; max-width: min(460px, calc(100vw - 48px)); z-index: 5; margin: 0; padding: 4px; list-style: none; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; max-height: 248px; overflow: auto; box-shadow: 0 14px 28px -10px #000; }
+  #suggest[hidden] { display: none; }
+  #suggest li { display: flex; justify-content: space-between; align-items: baseline; gap: 14px; padding: 4px 8px; border-radius: 4px; cursor: pointer; }
+  #suggest li .what { color: var(--muted); font-size: 12px; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  #suggest li.hint { cursor: default; color: var(--muted); display: block; }
+  #suggest li[aria-selected="true"] { background: #1f242b; box-shadow: inset 2px 0 0 var(--accent); }
+  #suggest mark { background: none; color: var(--accent); }
+  #commands[aria-expanded="true"] { border-color: var(--accent); color: var(--accent); }
+  .help { margin: 0 0 10px; padding: 10px 12px; max-height: 340px; overflow: auto; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; }
+  .help[hidden] { display: none; }
+  .help p { margin: 0 0 8px; color: var(--muted); font-size: 12.5px; }
+  .help ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  .help li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; align-items: baseline; }
+  .help code { color: var(--fg); overflow-wrap: anywhere; }
+  .help li .d { grid-column: 1 / -1; color: var(--muted); font-size: 12.5px; }
+  .help .ex { font-size: 12px; padding: 1px 8px; color: var(--accent); }
+  .help .noex { font-size: 12px; color: var(--muted); }
   #log { height: 260px; overflow: auto; margin: 0; padding: 8px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
   #log .in { color: var(--accent); }
   #log .note { color: var(--muted); }
@@ -60,7 +109,15 @@
     <h1>Desk emulator</h1>
     <p class="sub">The board in a page: it plays the .bin as the firmware does and talks to the bridge in the board's own line protocol.</p>
     <div class="status" aria-live="polite"><span id="link" class="off">no bridge</span><span id="art" class="off">no art</span></div>
-    <div class="stage">
+    <div class="bar">
+      <div class="modes" role="group" aria-label="How the board is shown">
+        <button type="button" data-mode="simple" aria-pressed="true">Simple</button>
+        <button type="button" data-mode="realistic" aria-pressed="false">Realistic</button>
+      </div>
+      <button type="button" id="linkbtn">Disconnect the bridge</button>
+    </div>
+    <p class="linkline" id="linkline"><span id="linktext"></span><button type="button" id="skip" hidden title="Moves the board's clock ahead by the time left. The board itself always waits.">Skip the wait</button></p>
+    <div class="stage" id="simple">
       <div class="prism" id="prism" tabindex="0" role="button" aria-label="The prism. Click or press Enter to tap the glass.">
         <div class="glass">
           <div class="screen" id="screen"><canvas class="glow" id="glow" width="60" height="60"></canvas><canvas id="lcd" width="240" height="240"></canvas></div>
@@ -69,6 +126,12 @@
       </div>
       <div class="stand"></div>
       <p class="hint">A click is a tap on the glass. The board has no double tap: a second knock within 600 ms is the same tap, and it has no shake.</p>
+    </div>
+    <div class="device-wrap" id="realistic" hidden>
+      <div class="device" id="device" tabindex="0" aria-label="The device in 3D. Drag to turn it, scroll or pinch to zoom. A click on it, or Enter, taps the glass."></div>
+      <p class="device-note" id="device-note">Drawing the device...</p>
+      <button type="button" class="reset" id="home">Reset view</button>
+      <p class="hint">The device at its real size, with the board's own picture on its display. Drag to turn it, scroll or pinch to zoom. A click on it is a tap on the glass, as in Simple.</p>
     </div>
   </div>
   <div>
@@ -80,15 +143,30 @@
     <section>
       <h2>Serial</h2>
       <form id="cmd">
-        <input type="text" id="line" placeholder="a command, as the bridge sends it: s working, o 1 2 0, c 3D8BFF, ?" aria-label="A command for the board" autocomplete="off" spellcheck="false">
+        <div class="combo">
+          <input type="text" id="line" placeholder="a command: s idle, e tap, ?" aria-label="A command for the board" autocomplete="off" spellcheck="false" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="suggest">
+          <ul id="suggest" role="listbox" aria-label="Suggestions" hidden></ul>
+        </div>
         <button type="submit">Send</button>
-        <button type="button" id="reboot">Reboot</button>
-        <label class="button">Load .bin<input type="file" id="file" accept=".bin,.clip,application/octet-stream"></label>
+        <button type="button" id="commands" aria-expanded="false" aria-controls="help">Commands</button>
+        <div class="tools"><button type="button" id="reboot">Reboot</button>
+        <label class="button">Load .bin<input type="file" id="file" accept=".bin,.clip,application/octet-stream"></label></div>
       </form>
+      <div class="help" id="help" hidden>
+        <p>Every command the board understands, as the bridge sends it over the serial line. An example goes into the box above; Enter sends it. While you type, the box suggests the commands, the moods and the acts of the art that is loaded (arrows to move, Tab or Enter to take one, Escape to close). Any line but w and W also counts as hearing from the bridge.</p>
+        <ul id="help-list"></ul>
+      </div>
       <pre id="log" aria-live="off"></pre>
     </section>
   </div>
 </main>
+<!-- three.js only for Realistic, imported when it is first shown: Simple needs nothing from outside -->
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
 <script type="module" src="app.mjs"></script>
 </body>
 </html>

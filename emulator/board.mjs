@@ -604,7 +604,7 @@ export class Board {
       kind: k === LOOP ? 'loop' : k === TRANS ? 'transition' : 'event', pending: this.pendingEvent >= 0 ? A.name[this.pendingEvent] : null,
       fps: this.fps, drawMs: this.drawMs, backlight: Math.trunc(this.blLevel),
       colour: [this.tintR, this.tintG, this.tintB].map(v => Math.round(v)), overlay: [this.ovWorking, this.ovWaiting, this.ovUnseen],
-      offline: this.offline, offlineMark: this.offlineMark(now), anchors: this.A.anchors, antenna: this.drawnOnAntenna, taps: this.tapCount,
+      offline: this.offline, heard: this.hostSeen ? now - this.lastHost : null, offlineMark: this.offlineMark(now), anchors: this.A.anchors, antenna: this.drawnOnAntenna, taps: this.tapCount,
       clock: this.clockBase < 0 ? null : (this.clockBase + Math.floor((now - this.clockAt) / 1000)) % 86400,
       frames: A.nFrames, seqs: A.nSeqs, clips: this.clips(), problems: this.problems.slice(),
     };
