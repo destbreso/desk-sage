@@ -242,6 +242,14 @@ class TheServer(unittest.TestCase):
         for name in ("device.mjs", "commands.mjs"):
             self.assertEqual(self.request("GET", "/emulator/" + name)[:2], (200, "text/javascript; charset=utf-8"), name)
 
+    def test_the_page_takes_only_its_font_from_fonts(self):
+        status, ctype, body = self.request("GET", "/fonts/GeistMono-Variable.woff2")
+        self.assertEqual((status, ctype), (200, "font/woff2"))
+        self.assertEqual(body[:4], b"wOF2")
+        for path in ("/fonts/OFL.txt", "/fonts/", "/fonts/../tools/buddy_bridge.py"):
+            self.assertEqual(self.request("GET", path)[0], 404, path)
+        self.assertEqual(self.request("GET", "/fonts/GeistMono-Variable.woff2", headers={"Host": "rebound.example:%d" % self.port})[0], 403)
+
     def test_another_site_s_page_is_refused(self):
         self.assertEqual(self.request("POST", "/emulator/board?page=1", b"tap\n", {"Origin": "https://example.com"})[0], 403)
         self.assertEqual(self.request("GET", "/emulator/events", headers={"Host": "rebound.example:%d" % self.port})[0], 403)
@@ -268,6 +276,7 @@ class TheServer(unittest.TestCase):
         bridge.buddy = b
         self.assertEqual(self.request("GET", "/emulator/")[0], 404)
         self.assertEqual(self.request("GET", "/hardware/model.js")[0], 404)
+        self.assertEqual(self.request("GET", "/fonts/GeistMono-Variable.woff2")[0], 404)
         self.assertEqual(self.request("POST", "/emulator/board?page=1", b"tap\n")[0], 404)
         self.assertEqual(self.request("GET", "/status")[0], 200)
 

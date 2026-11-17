@@ -65,6 +65,7 @@ HTTP_PORT = 47823
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EMULATOR_DIR = os.path.join(ROOT, "emulator")        # the emulator's page, served from a checkout of the repository
 HARDWARE_FILES = {"model.js"}                         # what the emulator's Realistic mode takes from hardware/: the device's model
+FONT_FILES = {"GeistMono-Variable.woff2"}             # the emulator's font, from fonts/ (OFL)
 HOME = os.environ.get("DESKBUDDY_HOME") or os.path.expanduser("~/.desk-buddy")   # tests point this elsewhere
 NIGHT_START, NIGHT_END = 0, 8           # local hours: night (deep sleep under the blanket) is midnight to 8am
 NIGHT_SETTLE = 5 * 60                   # after it was last up to something (or you were), regular sleep this long first
@@ -1945,6 +1946,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._reply(404)
         return True
 
+    def _font_get(self):
+        """The emulator's font from fonts/, under the same rule as the emulator's own files."""
+        hub = self._emulator()
+        if hub is None:
+            return False
+        if hub:
+            name = urlparse(self.path).path[len("/fonts/"):]
+            if name in FONT_FILES:
+                with open(os.path.join(ROOT, "fonts", name), "rb") as f:
+                    self._reply(200, f.read(), "font/woff2")
+            else:
+                self._reply(404)
+        return True
+
     def _emulator_post(self, body):
         hub = self._emulator()
         if hub is None:
@@ -2006,6 +2021,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if self.path.startswith("/emulator") and self._emulator_get():
             return
         if self.path.startswith("/hardware/") and self._hardware_get():
+            return
+        if self.path.startswith("/fonts/") and self._font_get():
             return
         if self.path == "/status":
             self._reply(200, json.dumps(buddy.status(), indent=2).encode(), "application/json")

@@ -5,11 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Desk emulator</title>
 <link rel="icon" href="data:,">
-<!-- Geist Mono, destbreso.com's one font; offline, the system's monospace takes its place -->
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600;700&display=swap">
+<!-- Geist Mono, destbreso.com's one font, served from this repository (fonts/OFL.txt); without it, the system's monospace -->
 <style>
+  @font-face { font-family: "Geist Mono"; src: url("../fonts/GeistMono-Variable.woff2") format("woff2"); font-weight: 100 900; font-style: normal; font-display: swap; }
   /* The look of destbreso.com's lab demos, as values copied from the site: its tokens (dark), and its demos' board,
      glass, corners and palette (the lab draws them with Tailwind's neutral, cyan, emerald and amber). */
   :root {

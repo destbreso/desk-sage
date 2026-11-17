@@ -132,4 +132,6 @@ The phases and the open questions are in [docs/ROADMAP.md](docs/ROADMAP.md). Wha
 
 This started as [desk-buddy](https://github.com/joebentham/desk-buddy) by Joe Bentham, a desk companion called Lump on the same display. The firmware, the bridge, the bake and the stand are his. Chris Simpkins's [fork](https://github.com/csimpkins22/desk-buddy) added frames made of drawing instructions, clips over Wi-Fi, and reactions to what the terminal runs. Both are MIT, and so is everything here except Sage (see [LICENSE](LICENSE)).
 
+The pages use Geist Mono, by Vercel, the same font as my site. It's under the SIL Open Font License, in [fonts/OFL.txt](fonts/OFL.txt).
+
 The board unpacks the compressed frames with the tinfl from Rich Geldreich's [miniz](https://github.com/richgel999/miniz) 1.15, which the ESP32-S3 already has in its ROM. The checks on the Mac build the same tinfl from `tools/tinfl.h`, which is public domain.

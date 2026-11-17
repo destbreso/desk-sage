@@ -7,11 +7,9 @@
 <meta name="description" content="Sage, the robot of destbreso.com, on a glass prism display: the device live in 3D, the bare board, the hardware taken apart, every mood and act, and how a moment reaches the glass, all running in the browser.">
 <link rel="icon" href="data:,">
 <!-- The repository's page on GitHub Pages: every link opens a page of this repository as it is, nothing built for it. -->
-<!-- Geist Mono, destbreso.com's one font; offline, the system's monospace takes its place -->
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600;700&display=swap">
+<!-- Geist Mono, destbreso.com's one font, served from this repository (fonts/OFL.txt); without it, the system's monospace -->
 <style>
+  @font-face { font-family: "Geist Mono"; src: url("fonts/GeistMono-Variable.woff2") format("woff2"); font-weight: 100 900; font-style: normal; font-display: swap; }
   /* destbreso.com's look, as values copied from the site: its dark tokens, its one font, its nearly square corners,
      and the idioms of its pages (the prompt, ./ links, # comments, → bullets). Dark only, as the site's lab is. */
   :root {
